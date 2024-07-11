@@ -96,7 +96,7 @@ colcon build --packages-select detr camera_publisher
 
 ## Running
 
-![Example showing full resolution obj detection](/home/nate/ROS-HF-Vision/doc/gifs/ex_1920x1080.gif)
+![Example showing full resolution obj detection](./doc/gifs/ex_1920x1080.gif)
 
 **!Important!**    Before running, make sure ROS 2 can find the virtual environement packages by exporting the PYTHONPATH as described in [this stackoverflow post](https://robotics.stackexchange.com/questions/98214/how-to-use-python-virtual-environments-with-ros2):
 
