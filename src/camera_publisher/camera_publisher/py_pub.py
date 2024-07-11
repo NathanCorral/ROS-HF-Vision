@@ -34,6 +34,7 @@ class CameraPublisher(Node):
                 Encodings: ["bgr8", "rgb8", "mono8"]
                 """
                 msg = self.bridge.cv2_to_imgmsg(frame, encoding='bgr8')
+                msg.header.stamp = self.get_clock().now().to_msg()
                 self.pub.publish(msg)
         except CvBridgeError as e:
             self.get_logger().error(e)

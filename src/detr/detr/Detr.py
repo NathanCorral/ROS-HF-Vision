@@ -14,8 +14,15 @@ from detr.ObjectDetectionNode import ObjectDetectionNode
 
 class Detr(ObjectDetectionNode):
     """
+    A ROS2 node for object detection using the DETR model from Hugging Face.
     """
     def __init__(self, node_name='detr'):
+        """
+        Initialize the Detr node.
+        
+        Parameters:
+            node_name (str): Name of the ROS2 node. Default is 'detr'.
+        """
         super().__init__(node_name=node_name)
 
         # https://huggingface.co/transformers/v3.0.2/model_doc/auto.html
@@ -31,6 +38,10 @@ class Detr(ObjectDetectionNode):
         self.processor = DetrImageProcessor.from_pretrained(pretrained_model_name_or_path)
         # self.model = AutoModel.from_pretrained(pretrained_model_name_or_path) # Doesnt work, different output format!
         self.model = DetrForObjectDetection.from_pretrained(pretrained_model_name_or_path).to(self.device)
+
+        # From base class, create image callback and bbox publisher
+        self.create_image_callback()
+        self.create_bb_publisher()
 
         """
         # Feature avaiable after ROS2 Jazzy 
@@ -57,13 +68,17 @@ class Detr(ObjectDetectionNode):
         return SetParametersResult(successful=True)
         """
 
-        # From base class
-        self.create_image_callback()
-        self.create_bb_publisher()
-
     @torch.no_grad()
     def run_torch(self, image):
-        # Save for postprocessing
+        """
+        Run the DETR model on an input image.
+        
+        Parameters:
+            image (numpy.ndarray): Input image in BGR format.
+            
+        Returns:
+            tuple: A tuple containing the inputs, outputs, and results from the model.
+        """
         height, width, _ = image.shape
 
         # 1. Preprocess inputs
@@ -87,7 +102,10 @@ class Detr(ObjectDetectionNode):
 
     def image_callback(self, msg):
         """
-        Overwrite Base Class
+        Callback function for image messages. Overwrites the base class implementation.
+        
+        Parameters:
+            msg (Image): The ROS2 Image message.
         """
         try:
             cv_image = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
@@ -99,14 +117,18 @@ class Detr(ObjectDetectionNode):
         _, _, results = self.run_torch(cv_image)
         # results = {}
         # results["scores"], results["labels"], results["boxes"] = [], [], []
-
         self.publish_detections(msg, results)
 
     def publish_detections(self, image_msg, results):
+        """
+        Publish detection results as a Detection2DArray message.
+        
+        Parameters:
+            image_msg (Image): The ROS2 Image message.
+            results (dict): Dictionary containing detection results.
+        """
         detection_array_msg = Detection2DArray()
         detection_array_msg.header = image_msg.header
-        # detection_array_msg.header.stamp = self.get_clock().now().to_msg()
-        # detection_array_msg.header.frame_id = image_msg.header.frame_id
 
         for score, label, box in zip(results["scores"], results["labels"], results["boxes"]):
             detection_msg = Detection2D()
