@@ -1,0 +1,1 @@
+doc/gifs/ex_1920x1080.gif filter=lfs diff=lfs merge=lfs -text
