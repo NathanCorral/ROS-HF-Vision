@@ -21,10 +21,10 @@ The project is designed to be expandable, eventually adding in other object dete
 
 Disclaimer:  I have not yet verified these on a cleanly installed machine, and have ROS 2 (Humble) Desktop installed.
 
-Clone the repo with:
+Clone the repo (without including the large .gif file):
 
 ```bash
-git clone https://github.com/NathanCorral/ROS-HF-Vision.git
+GIT_LFS_SKIP_SMUDGE=1 git clone https://github.com/NathanCorral/ROS-HF-Vision.git
 ```
 
 ### ROS Package Dependencies:
