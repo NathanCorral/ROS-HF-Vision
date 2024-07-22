@@ -39,7 +39,7 @@ Additional Packages: (check current packages with `ros2 pkg list`)
 
 - `image_transport`:  https://github.com/ros-perception/image_transport_tutorials
 
-  
+- `message_filters`:  [https://github.com/ros2/message_filters](https://github.com/ros2/message_filters)
 
 ### Virutalenv / Pip
 
