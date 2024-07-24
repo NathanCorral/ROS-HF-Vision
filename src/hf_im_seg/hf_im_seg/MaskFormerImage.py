@@ -111,7 +111,7 @@ class ImageDataManager:
         """
         idx = -1
         ret = self[idx]
-        while (abs(idx) < len(self) and ret["image"] is None):
+        while abs(idx) < len(self) and ret["image"] is None:
             idx -= 1
             ret = self[idx]
 
@@ -126,14 +126,6 @@ class ImageDataManager:
         """
         pass
 
-# Example usage
-# if __name__ == "__main__":
-#     data_manager = DataManager(skew=timedelta(seconds=1))
-#     data_manager.add_image("image_1", datetime.now())
-#     data_manager.add_mask("mask_1", datetime.now() + timedelta(seconds=0.5))
-#     data_manager.add_bbox("bbox_1", datetime.now() + timedelta(seconds=2))  # This should print a warning
-#     print(data_manager.get_latest())
-
 class MatPlotLibVisualizer:
     def __init__(self, live_display=True, num_cmap_colors=14):
         """
@@ -145,6 +137,7 @@ class MatPlotLibVisualizer:
         self.fig = None
 
         self.reset()
+        self.reset_fig()
         self.init_cmap(num_cmap_colors)
 
     def reset(self):
@@ -160,24 +153,25 @@ class MatPlotLibVisualizer:
         self.prev_time = None
         self.time_diffs = []
         self.time_diffs_sum = 0.
+        self.frame_count = 0
 
-        # Delete fig if it exist
-        if self.fig is not None:
-            plt.cla()
-            plt.close(self.fig)
-
-        # Create a fig/ax for live display 
-        # self.fig, self.axes = plt.subplots(111) # Todo enable multiple axes
+    def reset_fig(self):
+        """
+        Reset the figure and ax objects.
+        Remove the first image
+        """
+        self.close()
         self.fig, self.ax = plt.subplots()
         self.im = None
         if self.live:
             plt.ion()
 
-        self.frame_count = 0
-
     def close(self):
-        plt.cla()
-        plt.close(self.fig)
+        if self.fig is not None:
+            plt.cla()
+            plt.close(self.fig)
+            plt.close("all")
+            self.fig = None
 
     def init_cmap(self, max_num_classes=40):
         self.max_num_classes = max_num_classes
@@ -208,16 +202,6 @@ class MatPlotLibVisualizer:
 
     def add_bbox(self, bbox, timestamp=None):
         self.data_manager.add_bbox(bbox, timestamp=timestamp)
-
-    def set_image(self, image):
-        pass
-        """Set the current image and start displaying it."""
-        self.current_image = image
-        if self.im is None:
-            self.im = self.ax.imshow(self.current_image)
-        else:
-            self.im.set_data(self.current_image)
-        self.update_figure()        
 
     def update_figure(self):
         self.fig.canvas.draw()
@@ -258,15 +242,26 @@ class MatPlotLibVisualizer:
         # TODO
         #   Else if idx is specified grab image from index
         #   Else update from timestamp if its not None
-        latest = self.data_manager.get_latest_image()
+        if idx is not None: 
+            latest = self.data_manager[idx]
+        elif timestamp is not None:
+            raise NotImplementedError("todo")
+        else:
+            latest = self.data_manager.get_latest_image()
+
         if latest is None:
-            # return failure
-            return -1
+            # return failure, no data to fetch
+            return -2
 
         # Retrieve Data
         new_image = latest["image"]
         new_bbox = latest["bbox"]
         new_mask = latest["mask"]
+        timestamp = latest["timestamp"]
+
+        if new_image is None:
+            # return failure to update
+            return -1
 
         # Draw image, seg map, bbox's, text, fps, ..
         # But first create image, if not image has been created
@@ -285,156 +280,30 @@ class MatPlotLibVisualizer:
             self._clear_previous_overlays()
             self.overlay_mask(new_mask)
 
-
-
         # Update figure
         self.update_figure()
         return 0
 
-    def update_display(self, new_image):
-        pass
-        """Update the displayed image."""
-        if self.im is None:
-            self.set_image(new_image)
-        else:
-            self.im.set_data(new_image)
-        
-        self.update_figure()
+    def create_gif(self, filename):
+        temp_live = self.live
+        self.live = False
+        self.reset_fig()
 
-    def animate_updates(self, image_sequence, interval=500):
-        """Animate the updates for a sequence of images."""
-        # if self.im is None:
-        #     self.set_image(image_sequence[0])
-        
+        # Animate function 
         self.animation_frame = 0
-        def update(frame):
-            self.update(image_sequence[frame])
+        def animate(frame):
+            self.update(idx=self.animation_frame)
             self.animation_frame += 1
 
-        self.ani = animation.FuncAnimation(self.fig, update, frames=len(image_sequence), interval=interval)
-        plt.show()
+        ani = animation.FuncAnimation(self.fig, animate, repeat=False, 
+            frames=len(self.data_manager)-1, interval=500)
 
-
-class SegmentationVisualizer:
-    def __init__(self, udpate_n_frames=1):
-        """
-        :param udpate_n_frames:  Update display every n frames.  Set to zero to disable live display (Can still be used to save gif).
-        """
-        self.current_image = None
-        self.current_mask = None
-        self.fig, self.ax = plt.subplots()
-        self.im = None
-        self.ani = None
-        self.udpate_n_frames = udpate_n_frames
-        if self.udpate_n_frames > 0:
-            plt.ion()  # turning interactive mode on
-        self.frame_count = 0
-        self.init_cmap()
+        writer = animation.PillowWriter(fps=5)
+        ani.save(filename, writer=writer)
         
-    def init_cmap(self, max_num_classes=40):
-        self.max_num_classes = max_num_classes
-        self.seen_classes = 0
-        self.cmap = plt.cm.get_cmap("hsv", self.max_num_classes)
-        self.label_colors = {}
+        self.live = temp_live
+        self.reset_fig()
 
-    def _clear_previous_overlays(self):
-        """Clear the previous mask overlay."""
-        while len(self.ax.images) > 1:
-            self.ax.images[-1].remove()
-            if self.ax.images[-1].colorbar is not None:
-                self.ax.images[-1].colorbar.remove()
-    
-    def _get_label_color(self, label_id):
-        """Get or generate a consistent color for a given label ID."""
-        if label_id not in self.label_colors:
-            self.label_colors[label_id] = self.cmap((label_id+self.seen_classes) % self.max_num_classes)[:3]
-            self.seen_classes += 1
-
-        return self.label_colors[label_id]
-
-    def set_image(self, image):
-        """Set the current image and start displaying it."""
-        self.current_image = image
-        if self.im is None:
-            self.im = self.ax.imshow(self.current_image)
-        else:
-            self.im.set_data(self.current_image)
-        self.update_figure()        
-
-    def update_figure(self):
-        if self.udpate_n_frames > 0 and self.frame_count % self.udpate_n_frames == 0:
-            self.fig.canvas.draw()
-            plt.show(block=False)
-            plt.pause(0.01)
-        self.frame_count += 1
-
-    def overlay_mask(self, mask, alpha=0.5, legend=None):
-        """Overlay a mask on the current image."""
-        self.current_mask = mask
-        if self.current_image is None:
-            raise ValueError("Current image is not set.")
-
-        self._clear_previous_overlays()
-
-        unique_labels = np.unique(mask)
-        colored_mask = np.zeros((*mask.shape, 4))
-        for label_id in unique_labels:
-            color = self._get_label_color(label_id)
-            colored_mask[mask == label_id, :3] = color
-            colored_mask[mask == label_id, 3] = alpha
-
-        self.ax.imshow(colored_mask, interpolation="nearest", alpha=alpha)
-
-        if legend:
-            patches = [mpatches.Patch(color=self._get_label_color(label), label=label) for label in legend]
-            self.ax.legend(handles=patches, loc='upper right')
-
-        plt.draw()
-
-    def display_side_by_side(self, mask):
-        """Display the current image and segmentation map side-by-side."""
-        if self.current_image is None or mask is None:
-            raise ValueError("Image or mask is not set.")
-        
-        fig, axs = plt.subplots(1, 2, figsize=(10, 5))
-        axs[0].imshow(self.current_image)
-        axs[0].set_title("Original Image")
-        axs[0].axis("off")
-
-        axs[1].imshow(self.current_image)
-        axs[1].imshow(mask, cmap="nipy_spectral", alpha=0.5)
-        axs[1].set_title("Segmentation Map")
-        axs[1].axis("off")
-
-        plt.tight_layout()
-        plt.show()
-
-    def update_display(self, new_image):
-        """Update the displayed image."""
-        if self.im is None:
-            self.set_image(new_image)
-        else:
-            self.im.set_data(new_image)
-        
-        self.update_figure()
-
-    def animate_updates(self, image_sequence, interval=500):
-        """Animate the updates for a sequence of images."""
-        if self.im is None:
-            self.set_image(image_sequence[0])
-        
-        def update(frame):
-            self.update_display(image_sequence[frame])
-
-        self.ani = animation.FuncAnimation(self.fig, update, frames=len(image_sequence), interval=interval)
-        plt.show()
-
-# Example usage:
-# visualizer = SegmentationVisualizer()
-# visualizer.set_image(image_array)
-# visualizer.overlay_mask(segmentation_map, legend=id2label)
-# visualizer.display_side_by_side(segmentation_map)
-# visualizer.animate_updates(image_sequence)
 
 class MaskFormerNode(Node):
     """
@@ -456,13 +325,13 @@ class MaskFormerNode(Node):
         pretrained_model_name_or_path = self.get_parameter('pretrained_model_name_or_path').get_parameter_value().string_value
         self.device = self.get_parameter('device').get_parameter_value().string_value
 
-        self.get_logger().info(f"Loading model:  {pretrained_model_name_or_path}...")
+        self.get_logger().info(f"Loading model:  {pretrained_model_name_or_path}")
         self.processor = AutoImageProcessor.from_pretrained(pretrained_model_name_or_path)
         self.model = MaskFormerForInstanceSegmentation.from_pretrained(pretrained_model_name_or_path).to(self.device)
 
         self.create_image_callback()
 
-        self.viz = MatPlotLibVisualizer()
+        self.viz = MatPlotLibVisualizer(live_display=False)
 
 
     def create_image_callback(self):
@@ -518,7 +387,8 @@ class MaskFormerNode(Node):
             msg (Image): The ROS2 Image message.
         """
         try:
-            cv_image = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
+            # cv_image = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
+            cv_image = self.bridge.imgmsg_to_cv2(msg, desired_encoding='rgb8')
         except CvBridgeError as e:
             self.get_logger().error(f'Could not convert image: {e}')
             return
@@ -526,11 +396,12 @@ class MaskFormerNode(Node):
         self.viz.add_image(cv_image)
         cv_image = cv_image.transpose((2, 0, 1))
         _, _, results = self.run_torch(cv_image)
-        self.get_logger().info(f"Unique Seg Class list:   {np.unique(results[0])}")
-        self.get_logger().info(f"Seg Map shape:   {results[0].shape}")
-        # self.viz.overlay_mask(results[0])
+        # self.get_logger().info(f"Unique Seg Class list:   {np.unique(results[0])}")
+        # self.get_logger().info(f"Seg Map shape:   {results[0].shape}")
         self.viz.add_mask(results[0])
-        self.viz.update()
+
+        # self.viz.update()
+        # if self.viz.frame_count == 1002 
 
 
     def publish_detections(self, image_msg, results):
