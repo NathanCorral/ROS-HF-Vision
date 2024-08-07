@@ -22,6 +22,7 @@ class Id2Label:
 class LabelEntry:
     label: str = "N/A"
     unique_id: Id2Label.MsgType = Id2Label.MsgLargestVal
+    #   local_datasets[i]->local_labels[i]
     local_datasets: List[str] = field(default_factory=list)
     local_labels: List[Id2Label.MsgType] = field(default_factory=list)
 
@@ -34,8 +35,9 @@ class ClassIDMapper(Node):
         # Class data:
         self.data : List[LabelEntry] = []
         self.local_to_global_maps : Dict[str, Dict[Id2Label.MsgType, int]] = {}
-        self.id2label : Dict[str, Dict[Id2Label.MsgType, str]] = {}
-        # This is Redundant, as entry contains local_datasets[i]->local_labels[i] mapping:
+        # self.id2label : Dict[str, Dict[Id2Label.MsgType, str]] = {}
+        self.id2label = {}
+        # This is Redundant, as LabelEntry contains local_datasets[i]->local_labels[i] mapping:
         self.local_id2label : Dict[str, Dict[Id2Label.MsgType, str]] = {}
 
         self.unique_id_counter = 0
@@ -51,6 +53,7 @@ class ClassIDMapper(Node):
         self.get_dataset_id_to_label_service = self.create_service(GetDatasetID2Label, 'get_dataset_id_to_label', self.get_dataset_id_to_label_callback)
 
         self.declare_parameter('database_version', 0)
+        self.set_database_version()
 
     def find_matching_label(self, label: str) -> Optional[int]:
         for i, entry in enumerate(self.data):
@@ -89,6 +92,9 @@ class ClassIDMapper(Node):
         self.local_to_global_maps[dataset_name] = local2global_map
         self.local_id2label[dataset_name] = dataset_id2label
         self.data_keys = [e.label for e in self.data]
+
+        self.id2label = {e.unique_id: e.label for e in self.data}
+        self.get_logger().info(f'Updated id2label:  {self.id2label}')
         return None
 
     def register_dataset_callback(self, request: RegisterDatasetMapJSON.Request, response: RegisterDatasetMapJSON.Response) -> RegisterDatasetMapJSON.Response:
@@ -120,7 +126,7 @@ class ClassIDMapper(Node):
                     response.error_msgs = ""
             
                 # Still update the database version incase a partial update of the dataset was possible
-                self.database_version += 0
+                self.database_version += 1
                 self.set_database_version()
         except FileNotFoundError or IOError:
             response.success = 2

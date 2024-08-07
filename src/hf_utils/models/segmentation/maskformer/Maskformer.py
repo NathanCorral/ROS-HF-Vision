@@ -1,6 +1,7 @@
 # Ros
 import rclpy
 from cv_bridge import CvBridge, CvBridgeError
+from rclpy.executors import MultiThreadedExecutor
 
 # Hugging Face/torch
 import torch
@@ -12,6 +13,8 @@ from transformers import (
 
 # Other
 import numpy as np
+from datetime import datetime
+
 
 # See Base Class for pub/sub functions
 from models.ModelNode import ModelNode
@@ -41,6 +44,10 @@ class MaskFormer(ModelNode):
 
         self.create_image_callback()
         self.create_seg_map_publisher()
+        self.spawn_metadata(dataset_name="ADE20K", dataset_file='ade20k_id2label.json')
+        # self.spawn_metadata(dataset_name="COCO2017", dataset_file='coco2017_id2label.json')
+
+
 
     @torch.no_grad()
     def run_torch(self, image):
@@ -62,10 +69,15 @@ class MaskFormer(ModelNode):
 
         # 2. Pass to model
         outputs = self.model(**inputs)
-
+        # self._print_shapes(outputs)
         # 3. Postprocess output
+
+        # results = self.processor.post_process_semantic_segmentation(
+        #     outputs, target_sizes=[[height, width]]
+        # )
+        # By setting target_sizes to None, leave in compressed form for transport
         results = self.processor.post_process_semantic_segmentation(
-            outputs, target_sizes=[[height, width]]
+            outputs, target_sizes=None
         )
 
         # Move the results to the cpu
@@ -74,6 +86,15 @@ class MaskFormer(ModelNode):
 
         return inputs, outputs, results
 
+    def _print_shapes(self, outputs):
+        self.get_logger().info(f'Output type:  {type(outputs)}')
+        # self.get_logger().info(f'Output type:  {type(outputs)}')
+
+        # https://huggingface.co/docs/transformers/main/en/model_doc/maskformer :: MaskFormerForInstanceSegmentationOutput
+        self.get_logger().info(f'class_queries_logits:  {outputs.class_queries_logits.shape}')
+        self.get_logger().info(f'masks_queries_logits:  {outputs.masks_queries_logits.shape}')
+
+
     def image_callback(self, msg):
         """
         Callback function for image messages
@@ -81,6 +102,7 @@ class MaskFormer(ModelNode):
         Parameters:
             msg (Image): The ROS2 Image message.
         """
+        # self.get_logger().info(f"Im Callback")
         try:
             cv_image = self.im_callback_bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
             # cv_image = self.im_callback_bridge.imgmsg_to_cv2(msg, desired_encoding='rgb8')
@@ -90,19 +112,30 @@ class MaskFormer(ModelNode):
 
         cv_image = cv_image.transpose((2, 0, 1))
         _, _, results = self.run_torch(cv_image)
-        # self.get_logger().info(f"Unique Seg Class list:   {np.unique(results[0])}")
-        # self.get_logger().info(f"Seg Map shape:   {results[0].shape}")
 
-        seg_msg = self.create_seg_mask_msg(msg.header, results[0])
+        # Transform results
+
+        # self.get_logger().info(f'Unique Seg Class list:   {np.unique(results[0])}')
+        # self.get_logger().info(f'Seg Map shape:   {results[0].shape}')
+        seg_mask = self.map_mask_labels(results[0])
+        # self.get_logger().info(f'seg_mask Class list:   {np.unique(seg_mask)}')
+
+        seg_msg = self.create_seg_mask_msg(msg.header, seg_mask)
         self.seg_publisher.publish(seg_msg)
+        # self.get_logger().info(f"Pubbed")
+
 
 
 def main(args=None):
     rclpy.init(args=args)
     maskformer = MaskFormer()
+    executor = MultiThreadedExecutor()
+    executor.add_node(maskformer)
+
 
     try:
-        rclpy.spin(maskformer)
+        # rclpy.spin(maskformer)
+        executor.spin()
     except KeyboardInterrupt:
         pass
 

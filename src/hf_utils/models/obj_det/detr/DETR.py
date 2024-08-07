@@ -3,6 +3,7 @@ import rclpy
 from rcl_interfaces.msg import SetParametersResult, ParameterEvent
 from vision_msgs.msg import Detection2DArray, Detection2D, ObjectHypothesisWithPose, BoundingBox2D
 from cv_bridge import CvBridge, CvBridgeError
+from rclpy.executors import MultiThreadedExecutor
 
 # Hugging Face/torch
 import torch
@@ -44,6 +45,9 @@ class DETR(ModelNode):
         # From base class, create image callback and bbox publisher
         self.create_image_callback()
         self.create_bb_publisher()
+        self.spawn_metadata(dataset_name="COCO2017", dataset_file='coco2017_id2label.json')
+        # self.spawn_metadata(dataset_name="ADE20K", dataset_file='ade20k_id2label.json')
+
 
     @torch.no_grad()
     def run_torch(self, image):
@@ -84,6 +88,7 @@ class DETR(ModelNode):
         Parameters:
             msg (Image): The ROS2 Image message.
         """
+        self.get_logger().debug(f'Image Recieved')
         try:
             cv_image = self.im_callback_bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
         except CvBridgeError as e:
@@ -95,15 +100,19 @@ class DETR(ModelNode):
         # results = {}
         # results["scores"], results["labels"], results["boxes"] = [], [], []
         bbox_msg = self.create_detections_msg(msg.header, results)
-
+        bbox_msg = self.map_bbox_labels(bbox_msg)
         self.bbox_publisher.publish(bbox_msg)
+        self.get_logger().debug(f'Detections Published')
 
 def main(args=None):
     rclpy.init(args=args)
     detr = DETR()
+    executor = MultiThreadedExecutor()
+    executor.add_node(detr)
 
     try:
-        rclpy.spin(detr)
+        # rclpy.spin(detr)
+        executor.spin()
     except KeyboardInterrupt:
         pass
 

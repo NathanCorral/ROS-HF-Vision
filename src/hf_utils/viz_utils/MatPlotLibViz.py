@@ -2,6 +2,7 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import matplotlib.animation as animation
 import numpy as np
+import scipy.ndimage
 
 # viz data
 from .ImageDataManager import ImageDataManager
@@ -106,7 +107,7 @@ class MatPlotLibViz:
             plt.show(block=False)
             plt.pause(0.01)
 
-    def overlay_mask(self, mask, alpha=0.5, legend=None):
+    def overlay_mask(self, mask, alpha=0.6, legend=None):
         """Overlay a mask on the current image."""
         unique_labels = np.unique(mask)
         colored_mask = np.zeros((*mask.shape, 4))
@@ -116,6 +117,7 @@ class MatPlotLibViz:
             colored_mask[mask == label_id, 3] = alpha
 
         self.ax.imshow(colored_mask, interpolation="nearest", alpha=alpha)
+        # self.ax.imshow(colored_mask, interpolation="nearest")
 
         if legend:
             # TODO
@@ -130,6 +132,44 @@ class MatPlotLibViz:
             Seg map should have full alpha.
         """
         pass
+
+
+    def interpolate_uint16_array(self, input_array: np.ndarray, height: int, width: int, method: str = 'nearest') -> np.ndarray:
+        """
+        Interpolates a np.uint16 2D array to a new size (height, width) using the specified interpolation method.
+
+        Parameters:
+        input_array (np.ndarray): The input 2D array of type np.uint16.
+        height (int): The desired height of the output array.
+        width (int): The desired width of the output array.
+        method (str): The interpolation method to use ('nearest' by default).
+
+        Returns:
+        np.ndarray: The interpolated 2D array of type np.uint16 with the specified size.
+        """
+        if input_array.dtype != np.uint16:
+            raise ValueError("Input array must be of type np.uint16")
+        
+        if method not in ['nearest', 'bilinear', 'bicubic']:
+            raise ValueError("Unsupported interpolation method. Use 'nearest', 'bilinear', or 'bicubic'.")
+
+        zoom_factors = (height / input_array.shape[0], width / input_array.shape[1])
+        if method == 'nearest':
+            order = 0
+        elif method == 'bilinear':
+            order = 1
+        elif method == 'bicubic':
+            order = 3
+        
+        interpolated_array = scipy.ndimage.zoom(input_array, zoom_factors, order=order).astype(np.uint16)
+        
+        return interpolated_array
+
+    def interplate_mask(self, mask, im):
+        height, width = im.shape[:2]
+        print("Height:  ",  height)
+        print("Width:  ",  width)
+        interpolated_image = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8).reshape(height, width, 3)
 
     def update(self, timestamp=None, idx=None) -> int:
         # Check that an image has been seen.
@@ -159,6 +199,7 @@ class MatPlotLibViz:
         if new_image is None:
             # return failure to update
             return -1
+        height, width = new_image.shape[:2]
 
         # Draw image, seg map, bbox's, text, fps, ..
         # But first create image, if not image has been created
@@ -169,13 +210,15 @@ class MatPlotLibViz:
             # Redraw updated image
             self.im.set_data(new_image)
 
+        if new_mask is not None:
+            seg_mask = self.interpolate_uint16_array(new_mask, height, width)
+            # print("Seg mask shape:  seg_mask")
+            self._clear_previous_overlays()
+            self.overlay_mask(seg_mask)
+
         if new_bbox is not None:
             self._clear_previous_bboxs()
             self.draw_bbox(new_bbox)
-
-        if new_mask is not None:
-            self._clear_previous_overlays()
-            self.overlay_mask(new_mask)
 
         # Update figure
         self.update_figure()

@@ -1,14 +1,21 @@
 # ROS
 import rclpy
 from rclpy.node import Node
+from rclpy.executors import MultiThreadedExecutor
 from sensor_msgs.msg import Image
 from cv_bridge import CvBridge, CvBridgeError
-import cv2
 from rclpy.qos import qos_profile_sensor_data
+from rcl_interfaces.srv import GetParameters
+from rclpy.callback_groups import MutuallyExclusiveCallbackGroup, ReentrantCallbackGroup
 from vision_msgs.msg import Detection2DArray, Detection2D, ObjectHypothesisWithPose, BoundingBox2D
 
+#
+from id2label_mapper_services.srv import RegisterDatasetMapJSON, GetLocaltoGlobalMap, GetID2Label, GetDatasetID2Label
+
 # Other
+import cv2
 import numpy as np
+
 
 class ModelNode(Node):
     """
@@ -25,6 +32,157 @@ class ModelNode(Node):
             node_name (str): Name of the ROS2 node. Default is 'obj_det'.
         """
         super().__init__(node_name=node_name)
+        self.init_id2label_srvs()
+
+    #
+    # id2label services
+    #
+    def init_id2label_srvs(self):
+        """
+        Initialize services for id2label_node
+        """
+        # Name of the dataset that the model was pretrained on.
+        self.dataset_name = None
+        self.dataset_map = None
+        self.dataset_map_version = -1
+
+        # Update the dataset map on a timer
+        # update_map_callback_group = MutuallyExclusiveCallbackGroup()
+        update_map_callback_group = None
+        self.dataset_map_update_timer = self.create_timer(1., self._update_dataset_map_callback, callback_group=update_map_callback_group)
+
+        # Services used to register a dataset and update the mappint in the timer
+        register_callback_group = MutuallyExclusiveCallbackGroup()
+        local_to_global_callback_group = MutuallyExclusiveCallbackGroup()
+        self.register_client = self.create_client(RegisterDatasetMapJSON, 'register_dataset_map_json', callback_group=register_callback_group)
+        self.get_local_to_global_client = self.create_client(GetLocaltoGlobalMap, 'get_local_to_global_map', callback_group=local_to_global_callback_group)
+        req_services = [self.register_client, 
+                        self.get_local_to_global_client, 
+                        ]
+        while not all([r.wait_for_service(timeout_sec=1.0) for r in req_services]):
+            self.get_logger().info('Service not available, waiting...')
+
+    def _update_dataset_map_callback(self):
+        """
+        Write a request to GetLocaltoGlobalMap, for our specific dataset.
+        If the dataset for this model has not ben defiend, do nothing
+        """
+        # self.get_logger().info(f"Timer Callback")
+
+        if not self.dataset_name:
+            return
+
+        # Update, fix our mappings
+        request = GetLocaltoGlobalMap.Request()
+        request.dataset_name = self.dataset_name
+
+        response = self.get_local_to_global_client.call(request)
+        # future = self.get_local_to_global_client.call_async(request)
+        # rclpy.spin_until_future_complete(self, future, timeout_sec=0.75)
+        # if future.done():
+        #     try:
+        #         response = future.result()
+        #     except Exception as e:
+        #         self.get_logger().error(f'GetLocaltoGlobalMap Service call failed: {e}')
+        #         return
+        # else:
+        #     self.get_logger().error(f'GetLocaltoGlobalMap Service call timed out.')
+        #     return
+
+        # self.get_logger().info(f"TimerLoop: Got Request -- {response.database_version}")
+
+        if response.database_version == self.dataset_map_version:
+            # Dataset is already up to data
+            # self.get_logger().info(f'Dataset up to date.')
+            return
+
+        if response.database_version < 0:
+            self.get_logger().error(f"Failed to get dataset mapping from:    {dataset_name}")
+            return
+
+        # One method is to create a lookup dict
+            # self.dataset_map = {loc: glob for loc, glob in zip(response.dataset_ids, response.unique_ids)}
+        # Other method is faster and more efficient, especially for segementation maps
+            # This could be up to around 131kB, in the case the dataset uses max uint16 to represent its values
+        self.dataset_map = np.zeros(max(response.dataset_ids)+1, dtype=np.uint16)
+        self.dataset_map[response.dataset_ids] = response.unique_ids
+        self.dataset_map_version = response.database_version
+
+        self.get_logger().info(f"Dataset Map updated to version {self.dataset_map_version}")
+        # self.get_logger().info(f'Dataset Mapping:   {self.dataset_map}')
+
+    def map_mask_labels(self, seg_mask : np.array):
+        """
+        Modify the mask labels in place.
+
+        :param seg_mask:  segmentation mask to map the labels.  Will be cast to uint16.
+        """
+        seg_mask = seg_mask.astype(np.uint16)
+
+        if self.dataset_map is None:
+            return seg_mask
+
+
+        max_val = seg_mask.max()
+        # self.get_logger().info(f'Max Value:   {max_val}')
+        if max_val >= len(self.dataset_map):
+            self.get_logger().warn(f'Invalid dataset map.  Max index:  {max_val},  dataset len:  {len(self.dataset_map)}')
+            return seg_mask
+
+        seg_mask = self.dataset_map[seg_mask]
+        return seg_mask
+
+    def map_bbox_labels(self, detections : Detection2DArray):
+        """
+        Modify the mask labels in place.
+
+        :param bbox:  bbox to map labels from
+        """
+        if self.dataset_map is None:
+            return detections
+
+        for detection_id, _ in enumerate(detections.detections):
+            for result_id, _ in enumerate(detections.detections[detection_id].results):
+                before = np.uint16(detections.detections[detection_id].results[result_id].hypothesis.class_id)
+                if before >= len(self.dataset_map):
+                    self.get_logger().warn(f'Invalid dataset map.  Max index:  {max_val},  dataset len:  {len(self.dataset_map)}')
+
+                detections.detections[detection_id].results[result_id].hypothesis.class_id = str(self.dataset_map[before])
+                after = detections.detections[detection_id].results[result_id].hypothesis.class_id
+        return detections
+
+
+    def spawn_metadata(self, dataset_name, dataset_file):
+        """
+        :param dataset_name:  Name to associate dataset metedata with
+        :param dataset_file:  .json filename located in id2label package.
+
+        TODO This node should load the data from a local dataset_file (.json) into a parameter blackboard.
+                have id2label monitor datasets mapping namespace to add new mappings.
+                This requires a refactor in the id2label package, as most services can be converted to 
+                monitoring a parameter server that all nodes can view.
+                Plan to refactor in move from humble
+        """
+        # self.get_logger().info("Adding Dataset")
+        request = RegisterDatasetMapJSON.Request()
+        request.json_id2label_filename = dataset_file
+        request.dataset_name = dataset_name
+
+        # _ = self.register_client.call(request)
+        future = self.register_client.call_async(request)
+        rclpy.spin_until_future_complete(self, future)
+
+        # Get new datatset metadata by manually calling timer update function
+        self.dataset_name = dataset_name
+        # self._update_dataset_map_callback()
+        # self.get_logger().info("Done Adding Dataset")
+        return 
+
+    #
+    # done id2label services
+    #
+
+
 
     def create_bb_publisher(self):
         """
@@ -43,18 +201,22 @@ class ModelNode(Node):
         self.seg_publisher = self.create_publisher(Image, topic, 10)
         self.seg_map_bridge = CvBridge()
 
-
     def create_image_callback(self):
         """
         Create a subscriber for images.
         """
+        # image_callback_group = MutuallyExclusiveCallbackGroup()
+        # image_callback_group = ReentrantCallbackGroup()
+        image_callback_group = None
+
         self.declare_parameter('image_topic', 'camera/image')
         topic = self.get_parameter('image_topic').get_parameter_value().string_value
         self.subscription = self.create_subscription(
             Image,
             topic,
             self.image_callback,
-            qos_profile_sensor_data)
+            qos_profile_sensor_data,
+            callback_group=image_callback_group)
         self.subscription  # prevent unused variable warning
         self.im_callback_bridge = CvBridge()
 
@@ -67,7 +229,7 @@ class ModelNode(Node):
         """
         # self.get_logger().warn(f'image_callback function from class: {type(self)}  should be overwritten by inherited class')
         try:
-            cv_image = self.callback_bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
+            cv_image = self.im_callback_bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
         except CvBridgeError as e:
             self.get_logger().error(f'Could not convert image: {e}')
             return
@@ -116,13 +278,13 @@ class ModelNode(Node):
         # self.bbox_publisher.publish(detection_array_msg)
         return detection_array_msg
 
-    def create_seg_mask_msg(self, header, mask : np.array, encoding="mono8") -> Image:
+    def create_seg_mask_msg(self, header, seg_mask : np.array, encoding="mono8") -> Image:
         """
         Transform seg results as a Image message.
         
         Parameters:
             header (Header): The ROS2 message header.
-            mask (np.array): Integer result of the image segmentation.
+            seg_mask (np.array): Integer result of the image segmentation.
             encoding (str):  Encoding in ["mono8", "mono16"]
 
         :return: sensor_msgs.Image
@@ -130,18 +292,46 @@ class ModelNode(Node):
         assert encoding in ["mono8", "mono16"]
 
         if encoding == "mono8":
-            mask = mask.astype(np.uint8, copy=False)
+            seg_mask = seg_mask.astype(np.uint8, copy=False)
         else:
-            mask = mask.astype(np.uint16, copy=False)
+            seg_mask = seg_mask.astype(np.uint16, copy=False)
 
-        seg_msg = self.seg_map_bridge.cv2_to_imgmsg(mask, encoding=encoding)
+        seg_msg = self.seg_map_bridge.cv2_to_imgmsg(seg_mask, encoding=encoding)
         seg_msg.header = header
         return seg_msg
+
+def test_label_conv(node):
+    from cv_bridge import CvBridge, CvBridgeError
+    import numpy as np
+
+    # node.spawn_metadata(dataset_name="COCO2017", dataset_file='coco2017_id2label.json')
+    node.spawn_metadata(dataset_name="ADE20K", dataset_file='ade20k_id2label.json')
+
+    # ADE20K num classes are 150
+    # COCO2017 are 91
+    seg_map = np.arange(150, dtype=np.uint16).reshape((10, 15))
+
+    # Convert to msg
+    # bridge = CvBridge()
+    # seg_map_msg = bridge.cv2_to_imgmsg(seg_map, encoding='mono16') 
+
+    # print(request.seg_map)
+    # response = MapImage.Response()
+    # response = id2label_mapper.map_image_srv_callback(request, response)
+    # conv_seg_map = bridge.imgmsg_to_cv2(response.seg_map, desired_encoding='mono16')
+
+
+    print("Seg Map:  ",  seg_map)
+    seg_map = node.map_mask_labels(seg_map)
+    # print("Map:  ",  node.dataset_map)
+    print("Labels Converted:  ",  seg_map)
+
 
 def main(args=None):
     rclpy.init(args=args)
     model_node = ModelNode()
-    model_node.create_image_callback()
+    # model_node.create_image_callback()
+    test_label_conv(model_node)
     
     try:
         rclpy.spin(model_node)

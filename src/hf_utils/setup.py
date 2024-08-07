@@ -27,6 +27,8 @@ setup(
             'maskformer = models.segmentation.maskformer.Maskformer:main',
             'detr = models.obj_det.detr.DETR:main',
             'viz = viz_utils.VizNode:main',
+
+            'model_node = models.ModelNode:main',
         ],
     },
 )

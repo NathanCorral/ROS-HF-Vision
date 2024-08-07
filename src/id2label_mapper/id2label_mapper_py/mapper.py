@@ -7,7 +7,7 @@ from vision_msgs.msg import Detection2D
 import struct
 
 from id2label_mapper_services.srv import RegisterDatasetMapJSON, GetLocaltoGlobalMap, GetID2Label, GetDatasetID2Label
-from id2label_mapper_services.srv import MapImage
+# from id2label_mapper_services.srv import MapImage
 
 class Mapper(Node):
     def __init__(self):
@@ -22,7 +22,7 @@ class Mapper(Node):
         self.dataset_mappings = {}
         
         # Create new service
-        self.map_image_srv = self.create_service(MapImage, 'map_image', self.map_image_srv_callback)
+        # self.map_image_srv = self.create_service(MapImage, 'map_image', self.map_image_srv_callback)
 
         # Subscribe to services
         self.register_future_requests = {}
@@ -185,6 +185,7 @@ class Mapper(Node):
         :return: response
 
         """
+        raise NotImplementedError()
         self.get_logger().info('map_image_srv_callback...')
         # print(self.dataset_mappings)
 
@@ -262,11 +263,11 @@ class Mapper(Node):
             new_image.data[i*2] = uint16_bytes[0]
             new_image.data[i*2+1] = uint16_bytes[1]
             # new_image.data[2*i:2*i+2] = bytearray(global_id.to_bytes(2, byteorder=byteorder, signed=False))
-        # print("DONEONE")
         return new_image
 
 
 def test_map_image_srv_callback(id2label_mapper):
+    raise NotImplementedError()
     from cv_bridge import CvBridge, CvBridgeError
     import numpy as np
     bridge = CvBridge()

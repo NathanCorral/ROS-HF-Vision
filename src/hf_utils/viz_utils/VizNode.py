@@ -107,7 +107,7 @@ class VizNode(Node, MatPlotLibViz):
             msg (Image): The ROS2 Image message.
         """
         try:
-            cv_image = self.bridge.imgmsg_to_cv2(msg, desired_encoding='mono8')
+            cv_image = self.bridge.imgmsg_to_cv2(msg, desired_encoding='mono16')
         except CvBridgeError as e:
             self.get_logger().error(f'Could not convert image: {e}')
             return
