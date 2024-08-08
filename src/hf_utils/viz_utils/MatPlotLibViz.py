@@ -21,13 +21,36 @@ class MatPlotLibViz:
         self.reset()
         self.reset_fig()
         self.init_cmap(num_cmap_colors)
-        # Connect the hover function to the motion_notify_event
-        # self.fig.canvas.mpl_connect("motion_notify_event", self.hover)
+        self.init_hover()
 
 
         # Track objects added from the bbox detections
         self.patches = []
         self.texts = []
+
+    def init_hover(self):
+        """
+        Create functionality so the user can hover over (with mouse) a point on the window and have
+         it dynmically create what label they are over.
+        """
+        self.xdata, self.ydata = None, None
+
+        if not self.live:
+            self.live_highlight = False
+            self.hover_annot = None
+            return
+        self.live_highlight = True
+
+        # Connect the hover function to the motion_notify_event
+        self.fig.canvas.mpl_connect("motion_notify_event", self.hover)
+
+        self.hover_annot = self.ax.annotate("", 
+                    xy=(0,0), xytext=(20,20),
+                    textcoords="offset points",
+                    bbox=dict(boxstyle="round", fc="w"),
+                    arrowprops=dict(arrowstyle="->"))
+        self.hover_annot.set_visible(False)
+
 
     def reset(self):
         # Keep list of what we have seen/classified
@@ -56,10 +79,9 @@ class MatPlotLibViz:
             plt.ion()
 
     def hover(self, event):
-        if event.inaxes == self.ax:
-            self.x, self.y = event.xdata, event.ydata
-            print(" x, y: ",   self.x, ", ", self.y)
-            return
+        self.xdata, self.ydata = event.xdata, event.ydata
+        # if event.inaxes == self.ax:
+        #     pass
 
     def close(self):
         if self.fig is not None:
@@ -129,7 +151,7 @@ class MatPlotLibViz:
                 if label_id in id2label.keys():
                     patches.append(Patch(color=color, label=id2label[label_id]))
                 else:
-                    print('Invalid Label id: ', label_id)
+                    patches.append(Patch(color=color, label=label_id))
 
         self.ax.imshow(colored_mask, interpolation="nearest", alpha=alpha)
         # self.ax.imshow(colored_mask, interpolation="nearest")
@@ -148,7 +170,6 @@ class MatPlotLibViz:
             Seg map should have full alpha.
         """
         pass
-
 
     def interpolate_uint16_array(self, input_array: np.ndarray, height: int, width: int, method: str = 'nearest') -> np.ndarray:
         """
@@ -221,18 +242,39 @@ class MatPlotLibViz:
             self.im.set_data(new_image)
 
         if new_mask is not None:
-            seg_mask = self.interpolate_uint16_array(new_mask, height, width)
-            # print("Seg mask shape:  seg_mask")
+            new_mask = self.interpolate_uint16_array(new_mask, height, width)
             self._clear_previous_overlays()
-            self.overlay_mask(seg_mask, id2label=id2label)
+            self.overlay_mask(new_mask, id2label=id2label)
 
         if new_bbox is not None:
             self._clear_previous_bboxs()
             self.draw_bbox(new_bbox, id2label=id2label)
 
         # Update figure
+        self.update_hover(new_mask, id2label)
         self.update_figure()
         return 0
+
+    def update_hover(self, seg_mask, id2label):
+        if not self.live_highlight  \
+                or not self.xdata   \
+                or not self.ydata   \
+                or seg_mask is None \
+                or id2label is None:
+
+            self.hover_annot.set_visible(False)
+            return
+
+        _id = seg_mask[int(self.ydata), int(self.xdata)]
+        if _id not in id2label.keys():
+            label = _id
+        else:
+            label = id2label[_id]
+        text = f'{label}'
+        self.hover_annot.xy = (int(self.xdata), int(self.ydata))
+        self.hover_annot.set_text(text)
+        self.hover_annot.set_visible(True)
+
 
     def create_gif(self, filename, fps):
         temp_live = self.live

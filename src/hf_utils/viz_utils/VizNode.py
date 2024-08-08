@@ -109,6 +109,9 @@ class VizNode(Node, MatPlotLibViz):
 
     def timer_callback(self):
         if self.live and len(self.data_manager) >= 1:
+            # if self.live_highlight and self.xdata and self.ydata:
+            #     self.get_logger().info(f'Hover Over:  ({self.xdata}, {self.ydata})')
+
             self.update(id2label=self.id2label)
         self.check_create_gif()
 
