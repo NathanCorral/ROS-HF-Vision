@@ -76,7 +76,6 @@ class VizNode(Node, MatPlotLibViz):
         self.timer_period = 1./live_fps
         self.timer = self.create_timer(self.timer_period, self.timer_callback)
 
-
         # Create a service to get the id2label
         id2label_callback_group = MutuallyExclusiveCallbackGroup()
         self.id2label_client = self.create_client(GetID2Label, 'get_id_to_label', callback_group=id2label_callback_group)

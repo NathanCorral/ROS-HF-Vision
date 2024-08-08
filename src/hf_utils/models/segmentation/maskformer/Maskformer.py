@@ -61,7 +61,7 @@ class MaskFormer(ModelNode):
         # self.spawn_metadata(dataset_name="COCO2017", dataset_file='coco2017_id2label.json')
         """
         # Combined:
-        self.spawn_model_metadata(pretrained_model_name_or_path, self.model)
+        self.spawn_model_metadata(pretrained_model_name_or_path, self.model.config.id2label)
 
     @torch.no_grad()
     def run_torch(self, image):

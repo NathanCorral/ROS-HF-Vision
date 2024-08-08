@@ -47,7 +47,7 @@ class DETR(ModelNode):
         self.create_bb_publisher()
         # self.spawn_metadata(dataset_name="COCO2017", dataset_file='coco2017_id2label.json')
         # self.spawn_metadata(dataset_name="ADE20K", dataset_file='ade20k_id2label.json')
-        self.spawn_model_metadata(pretrained_model_name_or_path, self.model)
+        self.spawn_model_metadata(pretrained_model_name_or_path, self.model.config.id2label)
 
 
     @torch.no_grad()

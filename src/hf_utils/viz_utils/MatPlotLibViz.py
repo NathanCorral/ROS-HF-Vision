@@ -212,6 +212,9 @@ class MatPlotLibViz:
             raise NotImplementedError("todo")
         else:
             latest = self.data_manager.get_latest_image()
+            if latest is None:
+                return 2
+
             latest_bbox = self.data_manager.get_latest_bbox()
             latest["bbox"] = latest_bbox["bbox"] if latest_bbox is not None else None
             latest_mask = self.data_manager.get_latest_mask()
@@ -219,7 +222,7 @@ class MatPlotLibViz:
 
         if latest is None:
             # return failure, no data to fetch
-            return -2
+            return 2
 
         # Retrieve Data
         new_image = latest["image"]
@@ -229,7 +232,7 @@ class MatPlotLibViz:
 
         if new_image is None:
             # return failure to update
-            return -1
+            return 1
         height, width = new_image.shape[:2]
 
         # Draw image, seg map, bbox's, text, fps, ..

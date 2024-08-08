@@ -29,6 +29,8 @@ setup(
             'viz = viz_utils.VizNode:main',
 
             'model_node = models.ModelNode:main',
+
+            'german_traffic_signs_dataset = models.BBoxImageDatasetPublisher:main',
         ],
     },
 )

@@ -176,7 +176,7 @@ class ModelNode(Node):
         # self.get_logger().info("Done Adding Dataset")
         return 
 
-    def spawn_model_metadata(self, model_name, model):
+    def spawn_model_metadata(self, model_name, id2label):
         """
         Similar to spawn metadata, but use the config from the model
 
@@ -185,44 +185,41 @@ class ModelNode(Node):
         """
         dataset_name = model_name.split("/")[-1]
         remote_filename = model_name + ".json"
-        self.create_id2label_json(remote_filename, model)
+        self.create_id2label_json(remote_filename, id2label)
         self.spawn_metadata(dataset_name, remote_filename)
 
-    def create_id2label_json(self, file_name, model):
+    def create_id2label_json(self, file_name, id2label):
         """
         Default directory is the id2label server.
         """
         # Dump the dictionary to a JSON file with proper formatting
         file_path = get_package_share_directory('id2label_mapper') + '/' + file_name
-
         os.makedirs(os.path.dirname(file_path), exist_ok=True)
-
-        id2label = model.config.id2label
-        # self.get_logger().info(f'id2label:  {id2label}')
         with open(file_path, 'w') as f:
             json.dump({"id2label": id2label}, f, indent=2)
         self.get_logger().info(f'Wrote to file path:  {file_path}')
+
 
     #
     # done id2label services
     #
 
-
-
-    def create_bb_publisher(self):
+    def create_bb_publisher(self, topic=None):
         """
         Create a publisher for bounding box arrays.
         """
-        self.declare_parameter('bbox_topic', 'hf_model/detections')        
-        topic = self.get_parameter('bbox_topic').get_parameter_value().string_value
+        if not topic:
+            self.declare_parameter('bbox_topic', 'hf_model/detections')        
+            topic = self.get_parameter('bbox_topic').get_parameter_value().string_value
         self.bbox_publisher = self.create_publisher(Detection2DArray, topic, 10)
 
-    def create_seg_map_publisher(self):
+    def create_seg_map_publisher(self, topic=None):
         """
         Create a publisher for segmentation maps.
         """
-        self.declare_parameter('seg_map_topic', 'hf_model/seg_map')        
-        topic = self.get_parameter('seg_map_topic').get_parameter_value().string_value
+        if not topic:
+            self.declare_parameter('seg_map_topic', 'hf_model/seg_map')        
+            topic = self.get_parameter('seg_map_topic').get_parameter_value().string_value
         self.seg_publisher = self.create_publisher(Image, topic, 10)
         self.seg_map_bridge = CvBridge()
 
