@@ -93,8 +93,8 @@ class ClassIDMapper(Node):
         self.local_id2label[dataset_name] = dataset_id2label
         self.data_keys = [e.label for e in self.data]
 
-        self.id2label = {e.unique_id: e.label for e in self.data}
-        self.get_logger().info(f'Updated id2label:  {self.id2label}')
+        # self.id2label = {e.unique_id: e.label for e in self.data}
+        # self.get_logger().info(f'Updated id2label:  {self.id2label}')
         return None
 
     def register_dataset_callback(self, request: RegisterDatasetMapJSON.Request, response: RegisterDatasetMapJSON.Response) -> RegisterDatasetMapJSON.Response:

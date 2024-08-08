@@ -8,13 +8,16 @@ from rclpy.qos import qos_profile_sensor_data
 from rcl_interfaces.srv import GetParameters
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup, ReentrantCallbackGroup
 from vision_msgs.msg import Detection2DArray, Detection2D, ObjectHypothesisWithPose, BoundingBox2D
+from ament_index_python.packages import get_package_share_directory
 
 #
 from id2label_mapper_services.srv import RegisterDatasetMapJSON, GetLocaltoGlobalMap, GetID2Label, GetDatasetID2Label
 
 # Other
+import os
 import cv2
 import numpy as np
+import json
 
 
 class ModelNode(Node):
@@ -77,6 +80,7 @@ class ModelNode(Node):
         request.dataset_name = self.dataset_name
 
         response = self.get_local_to_global_client.call(request)
+        # !To make async work, need to add callback function and handle response their!
         # future = self.get_local_to_global_client.call_async(request)
         # rclpy.spin_until_future_complete(self, future, timeout_sec=0.75)
         # if future.done():
@@ -156,12 +160,6 @@ class ModelNode(Node):
         """
         :param dataset_name:  Name to associate dataset metedata with
         :param dataset_file:  .json filename located in id2label package.
-
-        TODO This node should load the data from a local dataset_file (.json) into a parameter blackboard.
-                have id2label monitor datasets mapping namespace to add new mappings.
-                This requires a refactor in the id2label package, as most services can be converted to 
-                monitoring a parameter server that all nodes can view.
-                Plan to refactor in move from humble
         """
         # self.get_logger().info("Adding Dataset")
         request = RegisterDatasetMapJSON.Request()
@@ -177,6 +175,33 @@ class ModelNode(Node):
         # self._update_dataset_map_callback()
         # self.get_logger().info("Done Adding Dataset")
         return 
+
+    def spawn_model_metadata(self, model_name, model):
+        """
+        Similar to spawn metadata, but use the config from the model
+
+        :param model_name:  Semantic name of model, will be used to constuct config file on remote
+        :param model:  Hugging Face Model, containing config with id2label
+        """
+        dataset_name = model_name.split("/")[-1]
+        remote_filename = model_name + ".json"
+        self.create_id2label_json(remote_filename, model)
+        self.spawn_metadata(dataset_name, remote_filename)
+
+    def create_id2label_json(self, file_name, model):
+        """
+        Default directory is the id2label server.
+        """
+        # Dump the dictionary to a JSON file with proper formatting
+        file_path = get_package_share_directory('id2label_mapper') + '/' + file_name
+
+        os.makedirs(os.path.dirname(file_path), exist_ok=True)
+
+        id2label = model.config.id2label
+        # self.get_logger().info(f'id2label:  {id2label}')
+        with open(file_path, 'w') as f:
+            json.dump({"id2label": id2label}, f, indent=2)
+        self.get_logger().info(f'Wrote to file path:  {file_path}')
 
     #
     # done id2label services
@@ -278,7 +303,7 @@ class ModelNode(Node):
         # self.bbox_publisher.publish(detection_array_msg)
         return detection_array_msg
 
-    def create_seg_mask_msg(self, header, seg_mask : np.array, encoding="mono8") -> Image:
+    def create_seg_mask_msg(self, header, seg_mask : np.array, encoding="mono16") -> Image:
         """
         Transform seg results as a Image message.
         
@@ -299,6 +324,8 @@ class ModelNode(Node):
         seg_msg = self.seg_map_bridge.cv2_to_imgmsg(seg_mask, encoding=encoding)
         seg_msg.header = header
         return seg_msg
+
+
 
 def test_label_conv(node):
     from cv_bridge import CvBridge, CvBridgeError

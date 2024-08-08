@@ -7,6 +7,10 @@ from rclpy.qos import qos_profile_sensor_data
 from vision_msgs.msg import Detection2DArray
 from ament_index_python.packages import get_package_share_directory
 from rclpy.time import Time
+from rclpy.executors import MultiThreadedExecutor
+from rclpy.callback_groups import MutuallyExclusiveCallbackGroup, ReentrantCallbackGroup
+
+
 
 # Other
 import cv2
@@ -16,6 +20,9 @@ from datetime import datetime, timedelta
 
 # viz data
 from .MatPlotLibViz import MatPlotLibViz
+
+from id2label_mapper_services.srv import RegisterDatasetMapJSON, GetLocaltoGlobalMap, GetID2Label, GetDatasetID2Label
+
 
 class VizNode(Node, MatPlotLibViz):
     """
@@ -69,9 +76,40 @@ class VizNode(Node, MatPlotLibViz):
         self.timer_period = 1./live_fps
         self.timer = self.create_timer(self.timer_period, self.timer_callback)
 
+
+        # Create a service to get the id2label
+        id2label_callback_group = MutuallyExclusiveCallbackGroup()
+        self.id2label_client = self.create_client(GetID2Label, 'get_id_to_label', callback_group=id2label_callback_group)
+        id2label_timer_callback_group = MutuallyExclusiveCallbackGroup()
+        self._get_id2_label_timer = self.create_timer(5, self._get_id2_label, callback_group=id2label_timer_callback_group)
+        self.id2label = { }
+        self.map_database_version = -1
+
+    def _get_id2_label(self):
+        request = GetID2Label.Request()
+        # response = self.id2label_client.call(request)
+        # self.get_logger().info(f'Done')
+        future = self.id2label_client.call_async(request)
+        future.add_done_callback(self._id2label_future_callback)
+
+        # if response.database_version > 0 and self.map_database_version != response.database_version:
+        #     self.id2label = {elem.class_id: elem.class_name for elem in response.class_map}
+        #     self.map_database_version = response.database_version
+        #     self.get_logger().info(f'id2label:  {self.id2label}')
+
+    def _id2label_future_callback(self, future):
+        try:
+            response = future.result()
+            if response.database_version > 0 and self.map_database_version != response.database_version:
+                self.id2label = {elem.class_id: elem.class_name for elem in response.class_map}
+                self.map_database_version = response.database_version
+                self.get_logger().info(f'id2label:  {self.id2label}')
+        except Exception as e:
+            self.get_logger().error(f'Service call failed: {e}')
+
     def timer_callback(self):
         if self.live and len(self.data_manager) >= 1:
-            self.update()
+            self.update(id2label=self.id2label)
         self.check_create_gif()
 
     def bbox_callback(self, detections):
@@ -112,7 +150,7 @@ class VizNode(Node, MatPlotLibViz):
             self.get_logger().error(f'Could not convert image: {e}')
             return
 
-        self.get_logger().info(f'Shape: {cv_image.shape}, dtype: {cv_image.dtype}, max/min: {cv_image.max()}/{cv_image.min()}')
+        # self.get_logger().info(f'Shape: {cv_image.shape}, dtype: {cv_image.dtype}, max/min: {cv_image.max()}/{cv_image.min()}')
         timestamp = self.ros_time_to_datetime(msg.header.stamp)
         self.add_mask(cv_image, timestamp)
 
@@ -224,8 +262,19 @@ class VizNode(Node, MatPlotLibViz):
 def main(args=None):
     rclpy.init(args=args)
     node = VizNode()
+
+    # MultiThreadedExecutor only works without live
+    if not node.live:
+        import matplotlib.pyplot as plt
+        plt.switch_backend('agg')
+        executor = MultiThreadedExecutor()
+        executor.add_node(node)
+    else:
+        executor = rclpy.executors.SingleThreadedExecutor()
+        executor.add_node(node)
+
     try:
-        rclpy.spin(node)
+        executor.spin()
     except KeyboardInterrupt:
         pass
 

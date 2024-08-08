@@ -3,10 +3,10 @@ import matplotlib.patches as patches
 import matplotlib.animation as animation
 import numpy as np
 import scipy.ndimage
+from matplotlib.patches import Patch
 
 # viz data
 from .ImageDataManager import ImageDataManager
-
 
 class MatPlotLibViz:
     def __init__(self, live_display=True, num_cmap_colors=14):
@@ -21,6 +21,9 @@ class MatPlotLibViz:
         self.reset()
         self.reset_fig()
         self.init_cmap(num_cmap_colors)
+        # Connect the hover function to the motion_notify_event
+        # self.fig.canvas.mpl_connect("motion_notify_event", self.hover)
+
 
         # Track objects added from the bbox detections
         self.patches = []
@@ -51,6 +54,12 @@ class MatPlotLibViz:
         self.im = None
         if self.live:
             plt.ion()
+
+    def hover(self, event):
+        if event.inaxes == self.ax:
+            self.x, self.y = event.xdata, event.ydata
+            print(" x, y: ",   self.x, ", ", self.y)
+            return
 
     def close(self):
         if self.fig is not None:
@@ -107,23 +116,30 @@ class MatPlotLibViz:
             plt.show(block=False)
             plt.pause(0.01)
 
-    def overlay_mask(self, mask, alpha=0.6, legend=None):
+    def overlay_mask(self, mask, alpha=0.6, id2label=None):
         """Overlay a mask on the current image."""
         unique_labels = np.unique(mask)
         colored_mask = np.zeros((*mask.shape, 4))
+        patches = []
         for label_id in unique_labels:
             color = self._get_label_color(label_id)
             colored_mask[mask == label_id, :3] = color
             colored_mask[mask == label_id, 3] = alpha
+            if id2label is not None:
+                if label_id in id2label.keys():
+                    patches.append(Patch(color=color, label=id2label[label_id]))
+                else:
+                    print('Invalid Label id: ', label_id)
 
         self.ax.imshow(colored_mask, interpolation="nearest", alpha=alpha)
         # self.ax.imshow(colored_mask, interpolation="nearest")
 
-        if legend:
+        # if legend:
             # TODO
-            patches = [mpatches.Patch(color=self._get_label_color(label), label=label) for label in legend]
-            self.ax.legend(handles=patches, loc='upper right')
-
+            # patches = [mpatches.Patch(color=self._get_label_color(label), label=label) for label in legend]
+            # self.ax.legend(handles=patches, loc='upper right')
+        if id2label is not None:
+            self.ax.legend(handles=patches, loc='center left', bbox_to_anchor=(1, 0.5))
         # plt.draw()
 
     def display_side_by_side(self, mask, n=4):
@@ -165,13 +181,7 @@ class MatPlotLibViz:
         
         return interpolated_array
 
-    def interplate_mask(self, mask, im):
-        height, width = im.shape[:2]
-        print("Height:  ",  height)
-        print("Width:  ",  width)
-        interpolated_image = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8).reshape(height, width, 3)
-
-    def update(self, timestamp=None, idx=None) -> int:
+    def update(self, timestamp=None, idx=None, id2label={}) -> int:
         # Check that an image has been seen.
         # TODO
         #   Else update from timestamp if its not None
@@ -214,11 +224,11 @@ class MatPlotLibViz:
             seg_mask = self.interpolate_uint16_array(new_mask, height, width)
             # print("Seg mask shape:  seg_mask")
             self._clear_previous_overlays()
-            self.overlay_mask(seg_mask)
+            self.overlay_mask(seg_mask, id2label=id2label)
 
         if new_bbox is not None:
             self._clear_previous_bboxs()
-            self.draw_bbox(new_bbox)
+            self.draw_bbox(new_bbox, id2label=id2label)
 
         # Update figure
         self.update_figure()
@@ -271,7 +281,7 @@ class MatPlotLibViz:
                 best_result = sorted_results[0]
                 score = best_result.hypothesis.score
                 label = best_result.hypothesis.class_id
-                label_text = f"{id2label[label] if id2label else label}: {score:.2f}"
+                label_text = f"{id2label[int(label)] if id2label else label}: {score:.2f}"
 
                 # Draw label
                 text = self.ax.text(x_min, y_min - 10, label_text, fontsize=9, color='black', bbox=dict(facecolor='white', alpha=0.5))

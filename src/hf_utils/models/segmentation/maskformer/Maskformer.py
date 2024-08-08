@@ -12,6 +12,7 @@ from transformers import (
 )
 
 # Other
+import os
 import numpy as np
 from datetime import datetime
 
@@ -34,20 +35,33 @@ class MaskFormer(ModelNode):
 
         self.declare_parameter('pretrained_model_name_or_path', 'facebook/maskformer-swin-base-coco')
         self.declare_parameter('device', 'cpu')
-
-        pretrained_model_name_or_path = self.get_parameter('pretrained_model_name_or_path').get_parameter_value().string_value
+        
         self.device = self.get_parameter('device').get_parameter_value().string_value
 
+        pretrained_model_name_or_path = self.get_parameter('pretrained_model_name_or_path').get_parameter_value().string_value
         self.get_logger().info(f"Loading model:  {pretrained_model_name_or_path}")
         self.processor = AutoImageProcessor.from_pretrained(pretrained_model_name_or_path)
         self.model = MaskFormerForInstanceSegmentation.from_pretrained(pretrained_model_name_or_path).to(self.device)
-
+        
         self.create_image_callback()
         self.create_seg_map_publisher()
-        self.spawn_metadata(dataset_name="ADE20K", dataset_file='ade20k_id2label.json')
+
+        """
+        Before
+        dataset_name = pretrained_model_name_or_path.split("/")[-1]
+        remote_filename = pretrained_model_name_or_path + ".json"
+
+        # Will create an id2label json map in "install/id2label_mapper/share/id2label_mapper/$remote_filename"
+        # self.get_logger().info(f'Model Config:  {self.model.config}')
+        self.create_id2label_json(remote_filename, self.model)
+
+
+        self.spawn_metadata(dataset_name=dataset_name, dataset_file=remote_filename)
+        # self.spawn_metadata(dataset_name="ADE20K", dataset_file='ade20k_id2label.json')
         # self.spawn_metadata(dataset_name="COCO2017", dataset_file='coco2017_id2label.json')
-
-
+        """
+        # Combined:
+        self.spawn_model_metadata(pretrained_model_name_or_path, self.model)
 
     @torch.no_grad()
     def run_torch(self, image):
