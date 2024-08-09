@@ -8,7 +8,6 @@ from id2label_mapper_services.srv import RegisterDatasetMapJSON, GetLocaltoGloba
 
 import json
 import numpy as np
-from array import array
 from dataclasses import dataclass, field
 from typing import Type, List, Dict, Optional
 
@@ -32,84 +31,124 @@ class ClassIDMapper(Node):
         Initialize the ClassIDMapper node, services, and internal data structures.
         """
         super().__init__('id2label_mapper')
-        # Class data:
+        # Data managed by the class:
         self.data : List[LabelEntry] = []
-        self.local_to_global_maps : Dict[str, Dict[Id2Label.MsgType, int]] = {}
-        # self.id2label : Dict[str, Dict[Id2Label.MsgType, str]] = {}
-        self.id2label = {}
-        # This is Redundant, as LabelEntry contains local_datasets[i]->local_labels[i] mapping:
-        self.local_id2label : Dict[str, Dict[Id2Label.MsgType, str]] = {}
+        # Track elements (redundantly), to allow quick returning from service calls
+        self.local_to_global_maps : Dict[str, (np.array, np.array)] = {}
+        self.id2label : List[VisionClass] = []
+        self.dataset_id2label : Dict[str, List[VisionClass]] = {}
 
+        # Database elements
         self.unique_id_counter = 0
         self.database_version = 0
 
-        # Append the "no class" label
-        self.data.append(LabelEntry())
-        self.data_keys = [e.label for e in self.data]
-
+        # Register Services
         self.register_service = self.create_service(RegisterDatasetMapJSON, 'register_dataset_map_json', self.register_dataset_callback)
         self.get_local_to_global_service = self.create_service(GetLocaltoGlobalMap, 'get_local_to_global_map', self.get_local_to_global_map_callback)
         self.get_id_to_label_service = self.create_service(GetID2Label, 'get_id_to_label', self.get_id_to_label_callback)
         self.get_dataset_id_to_label_service = self.create_service(GetDatasetID2Label, 'get_dataset_id_to_label', self.get_dataset_id_to_label_callback)
 
+        # Create a global parameter
         self.declare_parameter('database_version', 0)
         self.set_database_version()
 
-    def find_matching_label(self, label: str) -> Optional[int]:
-        for i, entry in enumerate(self.data):
-            if entry.label == label:
-                return i
-        return None
+    def add_dataset(self, dataset_name : str, json_id2label):
+        """
+        Add a new dataset and map its local IDs to global unique IDs.
 
-    def add_dataset(self, dataset_name : str, dataset_id2label : Dict[Id2Label.MsgType, str]):
-        local2global_map : Dict[Id2Label.MsgType, int] = {}
-        for id, label in dataset_id2label.items():
+        Parameters:
+        dataset_name (str): The name of the dataset to add.
+        json_id2label: A dictionary mapping local IDs to labels for the dataset.
+
+        Returns: None
+        """
+        local2global_map_dataset_ids = []
+        local2global_map_unique_ids = []
+        dataset_id2label_list = []
+
+        for id, label in json_id2label.items():
+            dataset_id2label_list.append(VisionClass(class_id=int(id), class_name=label))
+
             matching_entry_idx = self.find_matching_label(label)
             if matching_entry_idx is not None:
                 # Same class label found in existing entry
-                self.get_logger().debug(f"Same class '{label}' found! Map: {id} -> {self.data[matching_entry_idx].unique_id}.  Overlapping datasets:  {self.data[matching_entry_idx].local_datasets}")
+                # self.get_logger().debug(f"Same class '{label}' found! Map: {id} -> {self.data[matching_entry_idx].unique_id}.  Overlapping datasets:  {self.data[matching_entry_idx].local_datasets}")
                 if dataset_name not in self.data[matching_entry_idx].local_datasets:
                     self.data[matching_entry_idx].local_datasets.append(dataset_name)
                     self.data[matching_entry_idx].local_labels.append(id)
 
                 # Match lookup to existing id
-                local2global_map[id] = self.data[matching_entry_idx].unique_id
+                local2global_map_dataset_ids.append(int(id))
+                local2global_map_unique_ids.append(int(self.data[matching_entry_idx].unique_id))
+
             else:
                 # Create New entry
-                if (self.unique_id_counter == (2**16-1)):
-                    self.get_logger.error("Database full.  Unable to add additional classes.")
-                else:
-                    entry = LabelEntry(label=label, 
-                                    unique_id=self.unique_id_counter, 
-                                    local_datasets=[dataset_name], 
-                                    local_labels=[id],
-                                    )
-                    self.unique_id_counter += 1
+                if (self.unique_id_counter == Id2Label.MsgLargestVal):
+                    self.get_logger().error("Database full.  Unable to add additional classes.")
+                    break
 
-                    self.data.append(entry)
-                    local2global_map[id] = entry.unique_id
+                entry = LabelEntry(label=label, 
+                                unique_id=self.unique_id_counter, 
+                                local_datasets=[dataset_name], 
+                                local_labels=[id],
+                                )
+                self.data.append(entry)
+                local2global_map_dataset_ids.append(int(id))
+                local2global_map_unique_ids.append(int(entry.unique_id))
+                self.id2label.append(VisionClass(class_id=int(entry.unique_id), class_name=label))
+                # dataset_id2label.class_map.class_map.append(VisionClass(class_id=id, class_name=label))
 
-        self.local_to_global_maps[dataset_name] = local2global_map
-        self.local_id2label[dataset_name] = dataset_id2label
-        self.data_keys = [e.label for e in self.data]
+                self.unique_id_counter += 1
 
-        # self.id2label = {e.unique_id: e.label for e in self.data}
-        # self.get_logger().info(f'Updated id2label:  {self.id2label}')
+        self.local_to_global_maps[dataset_name] = (local2global_map_dataset_ids,
+                                                    local2global_map_unique_ids)
+        self.dataset_id2label[dataset_name] = dataset_id2label_list
+
+        self.database_version += 1
+        self.set_database_version()
+        return
+
+    def set_database_version(self):
+        """
+        Update the parameter server for the database version.
+
+        Returns: None
+        """
+        database_param = rclpy.parameter.Parameter(
+            'database_version',
+            rclpy.Parameter.Type.INTEGER,
+            self.database_version,
+        )
+        self.set_parameters([database_param])
+    
+    def find_matching_label(self, label: str) -> Optional[int]:
+        """
+        Find the index of an existing label in the dataset.
+        
+        Parameters:
+            label (str): The label to search for in the dataset.
+
+        Returns:
+            Optional[int]: The index of the matching label in the dataset, or None if not found.
+        """
+        for i, entry in enumerate(self.data):
+            if entry.label == label:
+                return i
         return None
 
     def register_dataset_callback(self, request: RegisterDatasetMapJSON.Request, response: RegisterDatasetMapJSON.Response) -> RegisterDatasetMapJSON.Response:
         """
-        Register a dataset using a JSON file.
+        Callback function for registering a dataset using a JSON file.
 
-        :param request:
-                string json_id2label_filename
-                string dataset_name
-        :param response: 
-                int32 success
-                string error_msgs
-        :return: response
+        Parameters:
+            request (RegisterDatasetMapJSON.Request): The request object containing the dataset name and JSON file path.
+            response (RegisterDatasetMapJSON.Response): The response object to be populated with success or error information.
+
+        Returns:
+            RegisterDatasetMapJSON.Response: The response with the success flag and error message (if any).
         """
-        if request.dataset_name in self.local_id2label.keys():
+        # Check if dataset has already been registered
+        if request.dataset_name in self.local_to_global_maps.keys():
             response.success = 0
             return response
 
@@ -117,41 +156,23 @@ class ClassIDMapper(Node):
             dataset_path = get_package_share_directory('id2label_mapper') + '/' + request.json_id2label_filename
             with open(dataset_path, 'r') as file:
                 data = json.load(file)
-                err = self.add_dataset(request.dataset_name, data['id2label'])
-                if err:
-                    response.success = 1
-                    response.error_msgs = err
-                else:
-                    response.success = 0
-                    response.error_msgs = ""
-            
-                # Still update the database version incase a partial update of the dataset was possible
-                self.database_version += 1
-                self.set_database_version()
+                self.add_dataset(request.dataset_name, data['id2label'])
         except FileNotFoundError or IOError:
             response.success = 2
-            response.error_msgs = str(e)
-        return response
+            response.error_msgs = f"File not found:  {dataset_path}"
 
-    def set_database_version(self):
-        database_param = rclpy.parameter.Parameter(
-            'database_version',
-            rclpy.Parameter.Type.INTEGER,
-            self.database_version,
-        )
-        self.set_parameters([database_param])
+        return response
 
     def get_local_to_global_map_callback(self, request: GetLocaltoGlobalMap.Request, response: GetLocaltoGlobalMap.Response) -> GetLocaltoGlobalMap.Response:
         """
-        Get the mapping from local dataset IDs to global unique IDs.
+        Callback function to get the mapping from local dataset IDs to global unique IDs.
 
-        :param request:
-                string dataset_name
-        :param response: 
-                uint16[] dataset_ids
-                uint16[] unique_ids
-                int32 database_version
-        :return: response
+        Parameters:
+            request (GetLocaltoGlobalMap.Request): The request object containing the dataset name.
+            response (GetLocaltoGlobalMap.Response): The response object to be populated with the mapping and database version.
+
+        Returns:
+            GetLocaltoGlobalMap.Response: The response with the dataset IDs, unique IDs, and database version.
         """
         dataset_name = request.dataset_name
         if dataset_name not in self.local_to_global_maps.keys():
@@ -161,49 +182,45 @@ class ClassIDMapper(Node):
             response.database_version = -1
             return response
 
-        response.dataset_ids = list(map(int, self.local_to_global_maps[dataset_name].keys()))
-        response.unique_ids = list(map(int, self.local_to_global_maps[dataset_name].values()))
+        response.dataset_ids = self.local_to_global_maps[dataset_name][0]
+        response.unique_ids = self.local_to_global_maps[dataset_name][1]
         response.database_version = self.database_version
         return response
 
-
     def get_id_to_label_callback(self, request: GetID2Label.Request, response: GetID2Label.Response) -> GetID2Label.Response:
         """
-        Get the mapping from global unique IDs to labels.
+        Callback function to get the global ID-to-label mapping.
 
-        :param request:
-                (No input parameters)
-        :param response: 
-                vision_msgs/VisionClass[] class_map
-                int32 database_version
-        :return: response
+        Parameters:
+            request (GetID2Label.Request): The request object (no input parameters required).
+            response (GetID2Label.Response): The response object to be populated with the class map and database version.
+
+        Returns:
+            GetID2Label.Response: The response with the class map and database version.
         """
-        response.class_map = [VisionClass(class_id=e.unique_id, class_name=e.label) for e in self.data]
+        response.class_map = self.id2label
         response.database_version = self.database_version
         return response
 
     def get_dataset_id_to_label_callback(self, request: GetDatasetID2Label.Request, response: GetDatasetID2Label.Response) -> GetDatasetID2Label.Response:
         """
-        Get the mapping from dataset IDs to labels for a specific dataset.
+        Callback function to get the dataset-specific ID-to-label mapping.
 
-        :param request:
-                string dataset_name
-        :param response: 
-                vision_msgs/LabelInfo class_map
-                vision_msgs/VisionInfo pipeline_info
-                int32 database_version
-        :return: response
+        Parameters:
+            request (GetDatasetID2Label.Request): The request object containing the dataset name.
+            response (GetDatasetID2Label.Response): The response object to be populated with the class map, pipeline info, and database version.
+
+        Returns:
+            GetDatasetID2Label.Response: The response with the class map, pipeline info, and database version.
         """
-        if request.dataset_name not in self.local_id2label.keys():
+        if request.dataset_name not in self.dataset_id2label.keys():
             response.class_map = LabelInfo()
             response.pipeline_info = VisionInfo()
+            response.database_version = -1
             return response
 
-        local_data = self.local_id2label[request.dataset_name]
-        response.class_map = LabelInfo()
-        response.class_map.class_map = [VisionClass(class_id=int(k), class_name=v) for k, v in local_data.items()]
+        response.class_map.class_map = self.dataset_id2label[request.dataset_name]
         response.database_version = self.database_version
-        response.pipeline_info = VisionInfo()
         return response
 
 def main(args=None):

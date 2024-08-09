@@ -13,31 +13,25 @@ find_package(id2label_mapper_services REQUIRED)
 find_package(ament_cmake_python REQUIRED)
 find_package(rclpy REQUIRED)
 
-
-if(BUILD_TESTING)
-  find_package(ament_lint_auto REQUIRED)
-  # the following line skips the linter which checks for copyrights
-  # comment the line when a copyright and license is added to all source files
-  set(ament_cmake_copyright_FOUND TRUE)
-  # the following line skips cpplint (only works in a git repo)
-  # comment the line when this package is in a git repo and when
-  # a copyright and license is added to all source files
-  set(ament_cmake_cpplint_FOUND TRUE)
-  ament_lint_auto_find_test_dependencies()
-endif()
-
 # Install python files
 ament_python_install_package(${PROJECT_NAME}_py)
 install(
   PROGRAMS ${PROJECT_NAME}_py/id2label_mapper.py
-            ${PROJECT_NAME}_py/mapper.py
+            # ${PROJECT_NAME}_py/mapper.py
+            ${PROJECT_NAME}_py/test_id2label.py
   DESTINATION lib/${PROJECT_NAME}
 )
 
 # Add shared files to project
 install(
   DIRECTORY share/
-  DESTINATION share/${PROJECT_NAME}
+  DESTINATION share/
+)
+
+# Install launch files.
+install(DIRECTORY
+  launch
+  DESTINATION share/${PROJECT_NAME}/
 )
 
 ament_package()
