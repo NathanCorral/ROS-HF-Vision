@@ -1,12 +1,12 @@
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import matplotlib.animation as animation
+from matplotlib.patches import Patch
 import numpy as np
 import scipy.ndimage
-from matplotlib.patches import Patch
 
 # viz data
-from .ImageDataManager import ImageDataManager
+from matplotlib_viewer.ImageDataManager import ImageDataManager
 
 class MatPlotLibViz:
     def __init__(self, live_display=True, num_cmap_colors=14):
@@ -22,7 +22,6 @@ class MatPlotLibViz:
         self.reset_fig()
         self.init_cmap(num_cmap_colors)
         self.init_hover()
-
 
         # Track objects added from the bbox detections
         self.patches = []
@@ -51,8 +50,10 @@ class MatPlotLibViz:
                     arrowprops=dict(arrowstyle="->"))
         self.hover_annot.set_visible(False)
 
-
     def reset(self):
+        """
+        Reset the data stored by the vizualizer.
+        """
         # Keep list of what we have seen/classified
         self.data_manager = ImageDataManager()
 
@@ -84,6 +85,7 @@ class MatPlotLibViz:
         #     pass
 
     def close(self):
+        """ Close the plot axes and figure """
         if self.fig is not None:
             plt.cla()
             plt.close(self.fig)
@@ -91,6 +93,7 @@ class MatPlotLibViz:
             self.fig = None
 
     def init_cmap(self, max_num_classes=40):
+        """ Initialize the colors for the segmentation masks """
         self.max_num_classes = max_num_classes
         self.seen_classes = 0
         self.cmap = plt.cm.get_cmap("hsv", self.max_num_classes)
@@ -121,15 +124,19 @@ class MatPlotLibViz:
         return self.label_colors[label_id]
 
     def add_image(self, image, timestamp=None):
+        """ Store data for display/replaying later """
         self.data_manager.add_image(image, timestamp=timestamp)
 
     def add_mask(self, mask, timestamp=None):
+        """ Store data for display/replaying later """
         self.data_manager.add_mask(mask, timestamp=timestamp)
 
     def add_bbox(self, bbox, timestamp=None):
+        """ Store data for display/replaying later """
         self.data_manager.add_bbox(bbox, timestamp=timestamp)
 
     def update_figure(self):
+        """ Draw the figure """
         self.fig.canvas.draw()
         self.frame_count += 1
 
@@ -154,22 +161,9 @@ class MatPlotLibViz:
                     patches.append(Patch(color=color, label=label_id))
 
         self.ax.imshow(colored_mask, interpolation="nearest", alpha=alpha)
-        # self.ax.imshow(colored_mask, interpolation="nearest")
 
-        # if legend:
-            # TODO
-            # patches = [mpatches.Patch(color=self._get_label_color(label), label=label) for label in legend]
-            # self.ax.legend(handles=patches, loc='upper right')
         if id2label is not None:
             self.ax.legend(handles=patches, loc='center left', bbox_to_anchor=(1, 0.5))
-        # plt.draw()
-
-    def display_side_by_side(self, mask, n=4):
-        """
-        Display the current image and segmentation map side-by-side. 
-            Seg map should have full alpha.
-        """
-        pass
 
     def interpolate_uint16_array(self, input_array: np.ndarray, height: int, width: int, method: str = 'nearest') -> np.ndarray:
         """
@@ -203,9 +197,23 @@ class MatPlotLibViz:
         return interpolated_array
 
     def update(self, timestamp=None, idx=None, id2label={}) -> int:
-        # Check that an image has been seen.
-        # TODO
-        #   Else update from timestamp if its not None
+        """
+        Go through the data manager and display the nearest (looking backwards in time):
+            - Image
+            - BBox
+            - Segmentation mask
+
+         - If hovering over a segment, create a label to indicate what object the mouse is over.
+         - Update the figure if we are doing a live display
+
+
+        :param timestamp:  Not Implemented, look up value from a timestamp
+        :param idx:  Look up a specific index in the database, used for creating an animation (.gif)
+                    Will select the closest bbox, seg_mask and image to the left of the index.
+        :param id2label:  Optional mapping which will generate the legend and human readable label strings.
+
+        :return:  Intager to indicate failure, 0 on success.
+        """
         if idx is not None: 
             latest = self.data_manager.get_left(idx)
         elif timestamp is not None:
@@ -259,6 +267,12 @@ class MatPlotLibViz:
         return 0
 
     def update_hover(self, seg_mask, id2label):
+        """
+        This function looks at the self.xdata and self.ydata (mouse coordinates) and checks if
+            it is over a value in the segmentation mask.
+            If so, it generates a label containing the string (or class) of the object that
+                the user is hovering over.
+        """
         if not self.live_highlight  \
                 or not self.xdata   \
                 or not self.ydata   \
@@ -280,6 +294,12 @@ class MatPlotLibViz:
 
 
     def create_gif(self, filename, fps):
+        """
+        Annimate a .gif from the stored data.
+
+        :param filename:  Filename to save the .gif under
+        :param fps:  Frames per second of the gif
+        """
         temp_live = self.live
         self.live = False
         self.reset_fig()
@@ -302,12 +322,8 @@ class MatPlotLibViz:
     def draw_bbox(self, detections, id2label=None):
         """
         Draw bounding boxes on the frame using Matplotlib.
-
-        Parameters:
-            detections (vision_msgs.msg.Detection2DArray): The array of detections.
-
-        Returns:
-            None
+        
+        :param detections (vision_msgs.msg.Detection2DArray): The array of detections.
         """
         for detection in detections.detections:
             bbox = detection.bbox

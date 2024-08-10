@@ -101,7 +101,7 @@ def generate_launch_description():
         ]
     )
     viz_node = Node(
-        package='hf_utils',
+        package='matplotlib_viewer',
         executable='viz',
         name='viz',
         output='screen',

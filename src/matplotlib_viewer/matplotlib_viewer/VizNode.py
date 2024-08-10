@@ -1,33 +1,30 @@
 # Ros
 import rclpy
-from rclpy.node import Node
-from sensor_msgs.msg import Image
-from cv_bridge import CvBridge, CvBridgeError
-from rclpy.qos import qos_profile_sensor_data
-from vision_msgs.msg import Detection2DArray
-from ament_index_python.packages import get_package_share_directory
 from rclpy.time import Time
+from rclpy.node import Node
+from rclpy.qos import qos_profile_sensor_data
 from rclpy.executors import MultiThreadedExecutor
+from ament_index_python.packages import get_package_share_directory
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup, ReentrantCallbackGroup
-
-
+# Callback types
+from sensor_msgs.msg import Image
+from vision_msgs.msg import Detection2DArray
+from cv_bridge import CvBridge, CvBridgeError
 
 # Other
-import cv2
-import os
-import json
 from datetime import datetime, timedelta
 
 # viz data
-from .MatPlotLibViz import MatPlotLibViz
+from matplotlib_viewer.MatPlotLibViz import MatPlotLibViz
 
-from id2label_mapper_services.srv import RegisterDatasetMapJSON, GetLocaltoGlobalMap, GetID2Label, GetDatasetID2Label
-
+# Custom service
+from id2label_mapper_services.srv import GetID2Label
 
 class VizNode(Node, MatPlotLibViz):
     """
-    A ROS2 wrapper for subscribing to messages and performing visualization functions using matplotlib animate as teh backend
-    ImageDataManager means no need for message_filters.ApproximateTimeSynchronizer
+    A ROS2 wrapper for subscribing to messages and performing visualization functions 
+        using matplotlib animate as teh backend.
+    ImageDataManager removes dependency for message_filters.ApproximateTimeSynchronizer
     """
     def __init__(self, node_name='viz'):
         """
@@ -52,11 +49,6 @@ class VizNode(Node, MatPlotLibViz):
         live_display = self.get_parameter('live_display').get_parameter_value().bool_value
         MatPlotLibViz.__init__(self, live_display=live_display)
 
-        # Load data for convering id to string
-        package_share_directory = get_package_share_directory('hf_utils')
-        path = os.path.join(package_share_directory, 'coco2017_id2label.json')
-        self.id2label = self.load_json_file(path)["id2label"]
-
         # Approximate the real object detection fps
         self.prev_time = None
         self.time_diffs = []
@@ -76,57 +68,60 @@ class VizNode(Node, MatPlotLibViz):
         self.timer_period = 1./live_fps
         self.timer = self.create_timer(self.timer_period, self.timer_callback)
 
-        # Create a service to get the id2label
+        # Create a service and timer to retrieve the "id2label" mapping
         id2label_callback_group = MutuallyExclusiveCallbackGroup()
         self.id2label_client = self.create_client(GetID2Label, 'get_id_to_label', callback_group=id2label_callback_group)
         id2label_timer_callback_group = MutuallyExclusiveCallbackGroup()
         self._get_id2_label_timer = self.create_timer(5, self._get_id2_label, callback_group=id2label_timer_callback_group)
         self.id2label = { }
         self.map_database_version = -1
+        self.service_found = False
 
     def _get_id2_label(self):
+        """
+        Timer callback that queries id2label server for any updates
+        """
+        if not self.service_found and not self.id2label_client.wait_for_service(timeout_sec=0):
+            self.get_logger().info('Waiting for id2label service')
+            return
+        self.service_found = True
         request = GetID2Label.Request()
-        # response = self.id2label_client.call(request)
-        # self.get_logger().info(f'Done')
         future = self.id2label_client.call_async(request)
         future.add_done_callback(self._id2label_future_callback)
 
-        # if response.database_version > 0 and self.map_database_version != response.database_version:
-        #     self.id2label = {elem.class_id: elem.class_name for elem in response.class_map}
-        #     self.map_database_version = response.database_version
-        #     self.get_logger().info(f'id2label:  {self.id2label}')
-
     def _id2label_future_callback(self, future):
+        """
+        Service callback that applies and id2label update
+
+        :param future: ROS2 future continaing GetID2Label.response object
+        """
         try:
             response = future.result()
             if response.database_version > 0 and self.map_database_version != response.database_version:
                 self.id2label = {elem.class_id: elem.class_name for elem in response.class_map}
                 self.map_database_version = response.database_version
-                self.get_logger().info(f'id2label:  {self.id2label}')
+                self.get_logger().debug(f'Updated id2label Version:  {self.map_database_version}')
         except Exception as e:
             self.get_logger().error(f'Service call failed: {e}')
 
     def timer_callback(self):
+        """
+        Fast timer callbakc function to:
+            - Update the live display
+            - Check if we should create a .gif
+        """
+        # self.get_logger().info(f'Image FPS:  {self.estimate_fps()}')
         if self.live and len(self.data_manager) >= 1:
-            # if self.live_highlight and self.xdata and self.ydata:
-            #     self.get_logger().info(f'Hover Over:  ({self.xdata}, {self.ydata})')
-
             self.update(id2label=self.id2label)
         self.check_create_gif()
 
-    def bbox_callback(self, detections):
-        """
-        """
+    def bbox_callback(self, detections : Detection2DArray) -> None:
+        """ Callback function for adding a detection bbox """
         timestamp = self.ros_time_to_datetime(detections.header.stamp)
         self.add_bbox(detections, timestamp)
 
-    def image_callback(self, msg):
-        """
-        Callback function for image messages.
-        
-        Parameters:
-            msg (Image): The ROS2 Image message.
-        """
+    def image_callback(self, msg : Image) -> None:
+        """ Callback function for adding an image """
         try:
             cv_image = self.bridge.imgmsg_to_cv2(msg, desired_encoding='rgb8')
         except CvBridgeError as e:
@@ -139,13 +134,8 @@ class VizNode(Node, MatPlotLibViz):
         _ = self.estimate_fps(msg.header)
         # self.get_logger().info(f'Estimated FPS: {self.estimate_fps(None)}')
 
-    def seg_map_callback(self, msg):
-        """
-        Callback function for image messages.
-        
-        Parameters:
-            msg (Image): The ROS2 Image message.
-        """
+    def seg_map_callback(self, msg : Image) -> None:
+        """ Callback function for adding a segmentation mask to the image"""
         try:
             cv_image = self.bridge.imgmsg_to_cv2(msg, desired_encoding='mono16')
         except CvBridgeError as e:
@@ -198,24 +188,6 @@ class VizNode(Node, MatPlotLibViz):
         self.create_gif(filename, fps=fps)
         self.get_logger().info(f'Writing Gif Finished')
         self.clear_create_gif_param()
-
-    def load_json_file(self, filepath):
-        """
-        Load a JSON file from the specified filepath.
-        
-        Parameters:
-            filepath (str): Path to the JSON file.
-            
-        Returns:
-            dict: Parsed JSON data.
-        """
-        try:
-            with open(filepath, 'r') as file:
-                data = json.load(file)
-                return data
-        except (FileNotFoundError, json.JSONDecodeError):
-            self.get_logger().warn(f'Unable to open and read file: {path}')
-            return None
 
     def estimate_fps(self, header=None):
         """

@@ -152,16 +152,39 @@ class ClassIDMapper(Node):
             response.success = 0
             return response
 
-        try:
-            dataset_path = get_package_share_directory('id2label_mapper') + '/' + request.json_id2label_filename
-            with open(dataset_path, 'r') as file:
-                data = json.load(file)
-                self.add_dataset(request.dataset_name, data['id2label'])
-        except FileNotFoundError or IOError:
+        dataset_path = get_package_share_directory('id2label_mapper') + '/' + request.json_id2label_filename
+        data = self.load_json_file(dataset_path)
+        if data is None:
             response.success = 2
-            response.error_msgs = f"File not found:  {dataset_path}"
+            response.error_msgs = f"File not found or invalid parsing from:  {dataset_path}"
+            return response
+        if "id2label" not in data.keys():
+            response.success = 3
+            response.error_msgs = f"Not key ’id2label’ in json file:  {dataset_path}"
+            return response
 
+        self.add_dataset(request.dataset_name, data['id2label'])
+        response.success = 0
         return response
+
+
+    def load_json_file(self, filepath):
+        """
+        Load a JSON file from the specified filepath.
+        
+        Parameters:
+            filepath (str): Path to the JSON file.
+            
+        Returns:
+            dict: Parsed JSON data.
+        """
+        try:
+            with open(filepath, 'r') as file:
+                data = json.load(file)
+                return data
+        except (FileNotFoundError, json.JSONDecodeError) as e:
+            self.get_logger().error(f'Unable to open and read file: {path} with error:  {e}')
+            return None
 
     def get_local_to_global_map_callback(self, request: GetLocaltoGlobalMap.Request, response: GetLocaltoGlobalMap.Response) -> GetLocaltoGlobalMap.Response:
         """
