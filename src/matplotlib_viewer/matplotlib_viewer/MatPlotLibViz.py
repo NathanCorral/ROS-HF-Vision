@@ -92,7 +92,7 @@ class MatPlotLibViz:
             plt.close("all")
             self.fig = None
 
-    def init_cmap(self, max_num_classes=40):
+    def init_cmap(self, max_num_classes=20):
         """ Initialize the colors for the segmentation masks """
         self.max_num_classes = max_num_classes
         self.seen_classes = 0
