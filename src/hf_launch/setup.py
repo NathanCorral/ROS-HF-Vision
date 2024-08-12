@@ -1,8 +1,9 @@
 import os
 from glob import glob
+
 from setuptools import find_packages, setup
 
-package_name = 'hf_utils'
+package_name = 'hf_launch'
 
 setup(
     name=package_name,
@@ -13,7 +14,6 @@ setup(
             ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
         (os.path.join('share', package_name), glob('launch/*launch.py')),
-        (os.path.join('share', package_name), glob(os.path.join('share', package_name, "*.json"))),
     ],
     install_requires=['setuptools'],
     zip_safe=True,
@@ -24,13 +24,6 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            'maskformer = models.segmentation.maskformer.Maskformer:main',
-            'detr = models.obj_det.detr.DETR:main',
-            # 'viz = viz_utils.VizNode:main',
-
-            'model_node = models.ModelNode:main',
-
-            'german_traffic_signs_dataset = models.BBoxImageDatasetPublisher:main',
         ],
     },
 )

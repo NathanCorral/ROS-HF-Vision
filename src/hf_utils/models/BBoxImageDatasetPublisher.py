@@ -48,15 +48,17 @@ class BBoxImageDatasetPublisher(ModelNode):
         # Actually the "seg_map" publisher will publish that dataset to images...
         	# And use bbox for ground truth bounding boxes
         topic_basename = os.path.dirname(pretrained_model_name_or_path)
-        self.create_seg_map_publisher(topic=topic_basename + "/image")
-        self.create_bb_publisher(topic=topic_basename + "/gt_bbox")
+        # self.create_seg_map_publisher(topic=topic_basename + "/image")
+        self.create_seg_map_publisher()
+        # self.create_bb_publisher(topic=topic_basename + "/gt_bbox")
+        self.create_bb_publisher()
 
         # Indicate the id2label mapping
         self.id2label = {i: name for i,name in enumerate(self.ds["train"].features["objects"].feature["category"].names)}
         self.spawn_model_metadata(pretrained_model_name_or_path, self.id2label)
 
         # Create a timer for publishing 
-        fps = 0.5
+        fps = 0.25
         self.timer_period = 1./fps
         self.timer = self.create_timer(self.timer_period, self.timer_callback)
 

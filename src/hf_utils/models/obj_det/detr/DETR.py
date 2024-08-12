@@ -31,9 +31,9 @@ class DETR(ModelNode):
         # https://huggingface.co/transformers/v3.0.2/model_doc/auto.html
         self.declare_parameter('pretrained_model_name_or_path', 'facebook/detr-resnet-50')
         self.declare_parameter('device', 'cpu')
-        self.declare_parameter('threshold', 0.7)
+        self.declare_parameter('detr_threshold', 0.7)
 
-        self.threshold = self.get_parameter('threshold').get_parameter_value().double_value
+        self.threshold = self.get_parameter('detr_threshold').get_parameter_value().double_value
 
         pretrained_model_name_or_path = self.get_parameter('pretrained_model_name_or_path').get_parameter_value().string_value
         self.device = self.get_parameter('device').get_parameter_value().string_value
