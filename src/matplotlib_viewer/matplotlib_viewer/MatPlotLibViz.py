@@ -127,6 +127,11 @@ class MatPlotLibViz:
         """ Store data for display/replaying later """
         self.data_manager.add_image(image, timestamp=timestamp)
 
+        # When we get a new image, clear the old bbox/masks
+        self._clear_previous_overlays()
+
+        self._clear_previous_bboxs()
+
     def add_mask(self, mask, timestamp=None):
         """ Store data for display/replaying later """
         self.data_manager.add_mask(mask, timestamp=timestamp)
@@ -273,6 +278,9 @@ class MatPlotLibViz:
             If so, it generates a label containing the string (or class) of the object that
                 the user is hovering over.
         """
+        if not self.live:
+            return
+
         if not self.live_highlight  \
                 or not self.xdata   \
                 or not self.ydata   \
@@ -293,7 +301,7 @@ class MatPlotLibViz:
         self.hover_annot.set_visible(True)
 
 
-    def create_gif(self, filename, fps):
+    def create_gif(self, filename, fps, id2label=None):
         """
         Annimate a .gif from the stored data.
 
@@ -307,7 +315,7 @@ class MatPlotLibViz:
         # Animate function 
         self.animation_frame = 0
         def animate(frame):
-            self.update(idx=self.animation_frame)
+            self.update(idx=self.animation_frame, id2label=id2label)
             self.animation_frame += 1
 
         ani = animation.FuncAnimation(self.fig, animate, repeat=False, 

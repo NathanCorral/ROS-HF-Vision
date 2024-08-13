@@ -32,15 +32,9 @@ def generate_launch_description():
          '/default.launch.py']),
     )
 
-    ml_nodes = IncludeLaunchDescription(
-      PythonLaunchDescriptionSource([os.path.join(
-         get_package_share_directory('hf_launch')),
-         '/ml_models.launch.py']),
-    )
     return LaunchDescription([
         # Include other launch files
         default_nodes,
-        # ml_nodes,
 
         # Dataset args
         play_bag_arg,

@@ -6,6 +6,10 @@ The Id2Label Mapper package is designed for managing and converting dataset-spec
 
 
 
+In practice, this is done by dumping a model's (config.id2label) dict as a .json in the id2label_mapper shared directory, and then making a service call to read this .json and populate the dataset.   It therefore may not yet work on distributed systems.
+
+
+
 ## Services
 
 - **register_dataset_map_json**: Registers a dataset using a JSON file containing the ID-to-label mapping.

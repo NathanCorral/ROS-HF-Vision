@@ -185,7 +185,7 @@ class VizNode(Node, MatPlotLibViz):
         fps = self.estimate_fps()
         self.get_logger().info(f'Saving gif of bbox frames to:  {filename}')
         self.get_logger().info(f'                    with fps:  {fps}')
-        self.create_gif(filename, fps=fps)
+        self.create_gif(filename, fps=fps, id2label=self.id2label)
         self.get_logger().info(f'Writing Gif Finished')
         self.clear_create_gif_param()
 
