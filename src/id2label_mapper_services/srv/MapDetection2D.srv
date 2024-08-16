@@ -1,0 +1,6 @@
+vision_msgs/Detection2D bboxes
+string dataset_name
+---
+int32 success
+string error_msgs
+vision_msgs/Detection2D bboxes

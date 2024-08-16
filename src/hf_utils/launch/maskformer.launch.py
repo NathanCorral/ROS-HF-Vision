@@ -2,6 +2,7 @@ from launch import LaunchDescription
 from launch_ros.actions import Node
 from launch.actions import DeclareLaunchArgument
 from launch.substitutions import LaunchConfiguration
+from launch.actions import ExecuteProcess
 
 def generate_launch_description():
     camera_index_arg = DeclareLaunchArgument(
@@ -21,7 +22,6 @@ def generate_launch_description():
         default_value='5',
         description='Frequency of publishing camera images'
     )
-
     threshold_arg = DeclareLaunchArgument(
         'threshold',
         default_value='0.7',
@@ -33,14 +33,11 @@ def generate_launch_description():
         default_value='camera/image',
         description='Image topic to subscribe to.'
     )
-
     bbox_topic_arg = DeclareLaunchArgument(
         'bbox_topic',
         default_value='detr/bbox',
         description='Bounding box topic to publish to.'
     )
-
-
     camera_index = LaunchConfiguration('camera_index')
     device = LaunchConfiguration('device')
     hz = LaunchConfiguration('hz')
@@ -71,43 +68,77 @@ def generate_launch_description():
             {'hz': hz}
         ]
     )
+    robag_replay = ExecuteProcess(
+                cmd=[
+                    "ros2",
+                    "bag",
+                    "play",
+                    # "--loop",
+                    "data/rosbag2_2024_07_11-14_13_26/rosbag2_2024_07_11-14_13_26_0.db3",
+                ],
+                output="screen",
+            )
 
+
+    maskformer_node = Node(
+        package='hf_utils',
+        executable='maskformer',
+        name='maskformer',
+        output='screen',
+        parameters=[
+            {'device': device},
+            {'image_topic': image_topic},
+        ]
+    )
     detr_node = Node(
-        package='detr',
+        package='hf_utils',
         executable='detr',
         name='detr',
         output='screen',
         parameters=[
-            {'image_topic': image_topic},
-            {'bbox_topic': bbox_topic},
             {'device': device},
-            {'threshold': threshold}
+            {'image_topic': image_topic},
         ]
     )
-
     viz_node = Node(
-        package='detr',
+        package='matplotlib_viewer',
         executable='viz',
         name='viz',
         output='screen',
         parameters=[
             {'image_topic': image_topic},
-            {'bbox_topic': bbox_topic}
+        ]
+    )
+    id2label_node = Node(
+        package='id2label_mapper',
+        executable='id2label_mapper.py',
+        name='id2label_mapper',
+        output='screen',
+        parameters=[
         ]
     )
 
     return LaunchDescription([
-        # Args
+        # Args #
         camera_index_arg,
         device_arg,
         hz_arg,
-        threshold_arg,
         image_topic_arg,
-        bbox_topic_arg,
+        # threshold_arg,
+        # bbox_topic_arg,
 
-        # Nodes
-        #camera_node_py,
-        camera_node_cpp,
-        detr_node,
+        # Publisher Nodes #
+        # camera_node_py,
+        # camera_node_cpp,
+        robag_replay,
+
+        # ML Models #
+        maskformer_node,
+
+        # Utils #
+        id2label_node,
+
+        # Vizualization #
         viz_node,
     ])
+

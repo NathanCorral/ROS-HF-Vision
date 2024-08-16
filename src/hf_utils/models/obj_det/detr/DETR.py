@@ -2,6 +2,9 @@
 import rclpy
 from rcl_interfaces.msg import SetParametersResult, ParameterEvent
 from vision_msgs.msg import Detection2DArray, Detection2D, ObjectHypothesisWithPose, BoundingBox2D
+from cv_bridge import CvBridge, CvBridgeError
+from rclpy.executors import MultiThreadedExecutor
+
 # Hugging Face/torch
 import torch
 from transformers import DetrImageProcessor, DetrForObjectDetection
@@ -9,10 +12,10 @@ from transformers import AutoConfig, AutoModel
 from transformers.models.detr.modeling_detr import DetrObjectDetectionOutput
 # Other
 import cv2
-# this repo
-from detr.ObjectDetectionNode import ObjectDetectionNode
+# See Base Class for pub/sub functions
+from models.ModelNode import ModelNode
 
-class Detr(ObjectDetectionNode):
+class DETR(ModelNode):
     """
     A ROS2 node for object detection using the DETR model from Hugging Face.
     """
@@ -28,9 +31,9 @@ class Detr(ObjectDetectionNode):
         # https://huggingface.co/transformers/v3.0.2/model_doc/auto.html
         self.declare_parameter('pretrained_model_name_or_path', 'facebook/detr-resnet-50')
         self.declare_parameter('device', 'cpu')
-        self.declare_parameter('threshold', 0.7)
+        self.declare_parameter('detr_threshold', 0.7)
 
-        self.threshold = self.get_parameter('threshold').get_parameter_value().double_value
+        self.threshold = self.get_parameter('detr_threshold').get_parameter_value().double_value
 
         pretrained_model_name_or_path = self.get_parameter('pretrained_model_name_or_path').get_parameter_value().string_value
         self.device = self.get_parameter('device').get_parameter_value().string_value
@@ -42,31 +45,10 @@ class Detr(ObjectDetectionNode):
         # From base class, create image callback and bbox publisher
         self.create_image_callback()
         self.create_bb_publisher()
+        # self.spawn_metadata(dataset_name="COCO2017", dataset_file='coco2017_id2label.json')
+        # self.spawn_metadata(dataset_name="ADE20K", dataset_file='ade20k_id2label.json')
+        self.spawn_model_metadata(pretrained_model_name_or_path, self.model.config.id2label)
 
-        """
-        # Feature avaiable after ROS2 Jazzy 
-        #    https://github.com/ros2/rclpy/issues/1105
-
-
-        from rclpy.parameter_event_handler import ParameterEventHandler
-
-        # Create a handler to dynamically adjust the threshold
-        self.threshold = self.get_parameter('threshold').get_parameter_value().float_value
-        self.handler = ParameterEventHandler(self)
-        self.callback_handle = self.handler.add_parameter_callback(
-            parameter_name="threshold",
-            node_name=node_name,
-            callback=self.parameter_callback,
-        )
-
-    def parameter_callback(self, params):
-        for param in params:
-            if param.name == 'threshold':
-                self.threshold = param.value
-                self.get_logger().info(f'Parameter {param.name} changed to {self.threshold}')
-                
-        return SetParametersResult(successful=True)
-        """
 
     @torch.no_grad()
     def run_torch(self, image):
@@ -107,8 +89,9 @@ class Detr(ObjectDetectionNode):
         Parameters:
             msg (Image): The ROS2 Image message.
         """
+        self.get_logger().debug(f'Image Recieved')
         try:
-            cv_image = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
+            cv_image = self.im_callback_bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
         except CvBridgeError as e:
             self.get_logger().error(f'Could not convert image: {e}')
             return
@@ -117,44 +100,20 @@ class Detr(ObjectDetectionNode):
         _, _, results = self.run_torch(cv_image)
         # results = {}
         # results["scores"], results["labels"], results["boxes"] = [], [], []
-        self.publish_detections(msg, results)
-
-    def publish_detections(self, image_msg, results):
-        """
-        Publish detection results as a Detection2DArray message.
-        
-        Parameters:
-            image_msg (Image): The ROS2 Image message.
-            results (dict): Dictionary containing detection results.
-        """
-        detection_array_msg = Detection2DArray()
-        detection_array_msg.header = image_msg.header
-
-        for score, label, box in zip(results["scores"], results["labels"], results["boxes"]):
-            detection_msg = Detection2D()
-            hypothesis = ObjectHypothesisWithPose()
-            hypothesis.hypothesis.class_id = str(label)
-            hypothesis.hypothesis.score = float(score)
-            detection_msg.results.append(hypothesis)
-
-            bbox = BoundingBox2D()
-            bbox.center.position.x = (box[0] + box[2]) / 2.0
-            bbox.center.position.y = (box[1] + box[3]) / 2.0
-            bbox.center.theta = 0.
-            bbox.size_x = float(box[2] - box[0])
-            bbox.size_y = float(box[3] - box[1])
-            detection_msg.bbox = bbox
-
-            detection_array_msg.detections.append(detection_msg)
-
-        self.bbox_publisher.publish(detection_array_msg)
+        bbox_msg = self.create_detections_msg(msg.header, results)
+        bbox_msg = self.map_bbox_labels(bbox_msg)
+        self.bbox_publisher.publish(bbox_msg)
+        self.get_logger().debug(f'Detections Published')
 
 def main(args=None):
     rclpy.init(args=args)
-    detr = Detr()
+    detr = DETR()
+    executor = MultiThreadedExecutor()
+    executor.add_node(detr)
 
     try:
-        rclpy.spin(detr)
+        # rclpy.spin(detr)
+        executor.spin()
     except KeyboardInterrupt:
         pass
 

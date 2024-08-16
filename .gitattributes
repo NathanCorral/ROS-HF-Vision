@@ -1,1 +1,7 @@
 doc/gifs/ex_1920x1080.gif filter=lfs diff=lfs merge=lfs -text
+data/rosbag2_2024_07_11-14_07_48 filter=lfs diff=lfs merge=lfs -text
+data/rosbag2_2024_07_11-14_07_48/metadata.yaml filter=lfs diff=lfs merge=lfs -text
+data/rosbag2_2024_07_11-14_07_48/rosbag2_2024_07_11-14_07_48_0.db3 filter=lfs diff=lfs merge=lfs -text
+doc/gifs/ex_german_roads.gif filter=lfs diff=lfs merge=lfs -text
+doc/images/ex_GermanTrafficSigns_Maskformer.png filter=lfs diff=lfs merge=lfs -text
+doc/gifs/example_home3.gif filter=lfs diff=lfs merge=lfs -text

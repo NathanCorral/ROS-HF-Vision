@@ -1,0 +1,4 @@
+---
+vision_msgs/VisionClass[] class_map
+int32 database_version
+

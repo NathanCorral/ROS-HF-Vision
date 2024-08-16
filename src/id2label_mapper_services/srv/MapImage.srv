@@ -1,0 +1,6 @@
+sensor_msgs/Image seg_map
+string dataset_name
+---
+int32 success
+string error_msgs
+sensor_msgs/Image seg_map

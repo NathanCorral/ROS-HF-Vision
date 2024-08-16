@@ -1,0 +1,5 @@
+string dataset_name
+---
+uint16[] dataset_ids
+uint16[] unique_ids
+int32 database_version

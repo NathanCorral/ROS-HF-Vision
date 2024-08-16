@@ -2,7 +2,7 @@ import os
 from glob import glob
 from setuptools import find_packages, setup
 
-package_name = 'detr'
+package_name = 'hf_utils'
 
 setup(
     name=package_name,
@@ -12,7 +12,7 @@ setup(
         ('share/ament_index/resource_index/packages',
             ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
-        (os.path.join('share', package_name), glob('launch/*.launch.py')),
+        (os.path.join('share', package_name), glob('launch/*launch.py')),
         (os.path.join('share', package_name), glob(os.path.join('share', package_name, "*.json"))),
     ],
     install_requires=['setuptools'],
@@ -24,8 +24,13 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            'detr = detr.Detr:main',
-            'viz = detr.DetectionVisualizer:main',
+            'maskformer = models.segmentation.maskformer.Maskformer:main',
+            'detr = models.obj_det.detr.DETR:main',
+            # 'viz = viz_utils.VizNode:main',
+
+            'model_node = models.ModelNode:main',
+
+            'german_traffic_signs_dataset = models.BBoxImageDatasetPublisher:main',
         ],
     },
 )
